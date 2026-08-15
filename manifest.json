@@ -1,0 +1,15 @@
+{
+  "name": "Pokémon Champions Coach",
+  "short_name": "Champions Coach",
+  "description": "Team builder & battle-advisor voor Pokémon Champions",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0d1015",
+  "theme_color": "#0d1015",
+  "orientation": "any",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

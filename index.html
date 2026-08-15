@@ -1473,6 +1473,68 @@ async function bestDamageRoll(attackerSlot,side,defenderSlot,defenderSide,option
 }
 /* ===== /DAMAGE ENGINE V2 ===== */
 
+/* ===== TRIO-SCORE OP ECHTE %-SCHADE =====
+   Gevalideerd via een losse oud-vs-nieuw-simulatie: het oude systeem (type-multiplier via
+   weight()) behandelt elke 2x-hit als evenveel risico, of dat nou 55% of 230% (gegarandeerde
+   OHKO) is. In 5 van de 6 geteste realistische scenario's koos de echte-%-versie daardoor een
+   ander, beter onderbouwd drietal (bv. Glimmora/Meowscarada — die tegen een special-heavy
+   team realistisch omver geblazen worden — werden vervangen door Garchomp/Mega Delphox, die
+   alles onder de ~110% incasseren). realWeight() is het %-analoog van weight(): zelfde
+   0/1/2-vorm, nu op de echte avg-roll i.p.v. de kale type-multiplier. Alleen de trio-SCORE
+   (pts/coverageQuality) migreert hierheen — bestAnswer(), de switch-tabel, 4x-badges en
+   matchupVerdict blijven bewust op de oude, per-matchup type-multiplier draaien; dat is een
+   apart te valideren stap. */
+function realWeight(pct){
+  if(pct==null)return 0;
+  if(pct>=80)return 2;
+  if(pct>25)return 1;
+  return 0;
+}
+/* Voor de "zij raken mij"-kant: als er geen echt ingevulde moves staan, val terug op de
+   meest gebruikte live moves (dezelfde bron als de item-auto-fill) — puur intern voor deze
+   berekening. Wijzigt nooit de zichtbare invoer/opgeslagen data van de gebruiker. */
+function scratchEnemyMoves(slot){
+  const real=slot.moves.filter(mv=>mv.name&&mv.cat&&mv.cat!=='Status');
+  if(real.length)return slot.moves;
+  const d=resolvedDex(slot);
+  const bd=d&&bdBattleCache[d[0]];
+  if(!bd||!bd.moves)return slot.moves;
+  const picked=[];
+  for(const m of bd.moves){
+    const info=moveLookup(m.name);
+    if(info&&info.cat!=='Status')picked.push({name:m.name,type:info.type,cat:info.cat});
+    if(picked.length>=4)break;
+  }
+  return picked.length?picked:slot.moves;
+}
+/* Bouwt de volledige mine×enemy-matrix in echte %-gewichten, volledig parallel. Val per
+   matchup terug op de oude type-multiplier-weging (via 'matrix', al bestaand) als de echte
+   data (nog) ontbreekt — nooit een teamlid straffen voor tijdelijk ontbrekende live data,
+   gewoon het beste beschikbare signaal gebruiken. */
+async function computeRealMatrix(mineFilled,enemyFilled,matrix){
+  const enemyScratch={};
+  enemyFilled.forEach(e=>{enemyScratch[e.idx]=Object.assign({},e.slot,{moves:scratchEnemyMoves(e.slot)});});
+  const pairs=[];
+  mineFilled.forEach(m=>enemyFilled.forEach(e=>pairs.push({m,e})));
+  const results=await Promise.all(pairs.map(({m,e})=>Promise.all([
+    bestDamageRoll(m.slot,'mine',e.slot,'theirs',{}),
+    bestDamageRoll(enemyScratch[e.idx],'theirs',m.slot,'mine',{})
+  ])));
+  const rm={};
+  mineFilled.forEach(m=>{rm[m.idx]={};});
+  pairs.forEach(({m,e},i)=>{
+    const[off,def]=results[i];
+    const fb=matrix[m.idx][e.idx];
+    rm[m.idx][e.idx]={
+      offW: off.ok?realWeight(off.percent.avg):weight(fb.off),
+      defW: def.ok?realWeight(def.percent.avg):weight(fb.def)
+    };
+  });
+  return rm;
+}
+let adviceGen=0;
+/* ===== /TRIO-SCORE OP ECHTE %-SCHADE ===== */
+
 let persistTimer=null;
 function persistAndRecompute(){clearTimeout(persistTimer);persistTimer=setTimeout(()=>{saveTeams();computeAdvice();},250);}
 
@@ -2729,7 +2791,8 @@ function teamPreviewHTML(mineFilled,enemyFilled,matrix){
   return html;
 }
 
-function computeAdvice(){
+async function computeAdvice(){
+  const myGen=++adviceGen;
   const out=document.getElementById('teamAdvice');
   if(!out)return;
   const mineFilled=[];mineTeam.forEach((s,i)=>{const t=slotTypes(s);if(t)mineFilled.push({idx:i,slot:s,types:t,name:s.name.trim()||('Mijn #'+(i+1))});});
@@ -2743,13 +2806,20 @@ function computeAdvice(){
   const matrix={};
   mineFilled.forEach(m=>{matrix[m.idx]={};enemyFilled.forEach(e=>{matrix[m.idx][e.idx]={off:bestOffense(m.slot,'mine',e.types,e.slot),def:bestOffense(e.slot,'theirs',m.types,m.slot)};});});
 
+  /* Echte %-schade voor de trio-SCORE (zie TRIO-SCORE-blok hierboven) — async, dus wachten
+     voordat pts/coverageQuality gebouwd worden. Als er intussen een NIEUWERE computeAdvice()
+     is gestart (gebruiker typte verder), stopt deze oude aanroep hier stil — dezelfde
+     bescherming die dmgTasks/altTasks al hadden tegen verouderde resultaten. */
+  const realMatrix=await computeRealMatrix(mineFilled,enemyFilled,matrix);
+  if(myGen!==adviceGen)return;
+
   const pts={};
   mineFilled.forEach(m=>{
     let offP=0,riskP=0;
     const myOff=offPower(m.slot),myBulk=bulkFactor(m.slot);
     enemyFilled.forEach(e=>{
-      const c=matrix[m.idx][e.idx];
-      offP+=weight(c.off)*myOff;
+      const rc=realMatrix[m.idx][e.idx];
+      offP+=rc.offW*myOff;
       /* Zelfde principe als bestAnswer(): een bevestigde 4x-zwakte is minder eng als je
          'm bevestigd sneller bent (je slaat waarschijnlijk eerst toe of dwingt een wissel
          af vóór die klap ooit valt) en enger als je bevestigd trager bent. Zonder dit werd
@@ -2758,7 +2828,7 @@ function computeAdvice(){
          incasseert — puur omdat de trio-score nooit naar snelheid keek, alleen bestAnswer() al. */
       const edge=speedEdge(m.slot,e.slot);
       const speedRiskMult=edge==='slower'?1.4:(edge==='faster'?0.7:1);
-      riskP+=weight(c.def)*myBulk*enemyOffFactor(e.slot)*speedRiskMult;
+      riskP+=rc.defW*myBulk*enemyOffFactor(e.slot)*speedRiskMult;
     });
     pts[m.idx]={offP,riskP,net:offP-riskP,myOff,myBulk};
   });
@@ -2810,7 +2880,7 @@ function computeAdvice(){
   const combos=combinations3(mineFilled.map(m=>m.idx));
   const scored=combos.map(combo=>{
     const coverage=enemyFilled.filter(e=>combo.some(mi=>matrix[mi][e.idx].off>1)).length;
-    const coverageQuality=enemyFilled.reduce((s,e)=>s+weight(Math.max(...combo.map(mi=>matrix[mi][e.idx].off)))*enemyThreatWeight(e.slot),0);
+    const coverageQuality=enemyFilled.reduce((s,e)=>s+Math.max(...combo.map(mi=>realMatrix[mi][e.idx].offW))*enemyThreatWeight(e.slot),0);
     const riskSum=combo.reduce((s,mi)=>s+pts[mi].riskP,0);
     let overlap=0;
     TYPES.forEach(([t])=>{const weakCount=combo.filter(mi=>effTypes(t,mineFilled.find(x=>x.idx===mi).types)>=2).length;if(weakCount>=2)overlap+=(weakCount-1)*1.5;});
@@ -2990,6 +3060,7 @@ function computeAdvice(){
 
   html+=coverageMapHTML(mineFilled);
 
+  if(myGen!==adviceGen)return;
   out.innerHTML=html;
 
   /* DAMAGE ENGINE V2: async na-vullen. Elke computeAdvice()-aanroep bouwt de hele

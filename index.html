@@ -3116,6 +3116,22 @@ async function computeAdvice(){
       html+='<div class="advWarn">☠ Lead '+spriteChip(nameFor(leadMi))+' 4× zwak tegen '+typeBadges+' — '+parts.join('; ')+'.</div>';
     }
   }
+  /* "Tegenstander opent met"-kiezer: op het moment dat beide leads zichtbaar worden en zijn
+     opener afwijkt van de voorspelling, direct het beste antwoord opvragen — zonder door de
+     hele switch-tabel te hoeven scrollen onder tijdsdruk. Geen nieuwe beslislogica: dezelfde
+     bestAnswer()/openerRecommendation-reeks als de switch-tabel hieronder, alleen prominent
+     en op aanvraag getoond. */
+  if(enemyFilled.length){
+    html+='<div class="advWhy" style="margin-top:14px;margin-bottom:4px">Tegenstander opent met:</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
+    enemyFilled.forEach(e=>{
+      const btnId='leadPickBtn-'+e.idx;
+      spriteChipTasks.push({id:btnId,name:e.name});
+      html+='<button type="button" id="'+btnId+'" data-enemy-idx="'+e.idx+'" class="covchip" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;">'+e.name+'</button>';
+    });
+    html+='</div>';
+    html+='<div id="leadAnswerBox" style="display:none;background:rgba(61,220,132,.10);border:1px solid var(--good-dim);border-radius:10px;padding:10px 14px;margin-bottom:10px;"></div>';
+  }
   html+='<div class="switchTable">';
   const byThreat=enemyFilled.slice().sort((a,b)=>Math.max(...best.combo.map(mi=>matrix[mi][b.idx].def))-Math.max(...best.combo.map(mi=>matrix[mi][a.idx].def)));
   /* DAMAGE ENGINE V2: puur additief. De echte %HP wordt async na-geladen (PokéAPI move-
@@ -3226,6 +3242,52 @@ async function computeAdvice(){
       enemyTeam[idx].manualTypes=[];
       rebuildTheirsSlots();
       persistAndRecompute();
+    };
+  });
+  /* "Tegenstander opent met"-knoppen: op aanvraag hetzelfde antwoord tonen als de switch-
+     tabel (bestAnswer/openerRecommendation/matchupVerdict/"hoeft niet te wisselen" — geen
+     nieuwe logica), alleen prominent in één blok i.p.v. moeten zoeken in de hele tabel. */
+  enemyFilled.forEach(e=>{
+    const btn=document.getElementById('leadPickBtn-'+e.idx);
+    if(!btn)return;
+    btn.onclick=async()=>{
+      const box=document.getElementById('leadAnswerBox');
+      if(!box)return;
+      box.style.display='block';
+      box.innerHTML='<div style="color:var(--muted);font-size:12px">Berekenen…</div>';
+      const a=bestAnswer(e);
+      const mySlot=mineTeam[a.mi];
+      let reason=openerRecommendation(mySlot,e.slot,e.types,a.cell.def);
+      reason+=speedNote(mySlot,e.slot);
+      reason+=enemyDrainWarning(mySlot,e.slot,e.name);
+      reason+=enemyStatusWarning(mySlot,e.slot,e.name);
+      if(a.cell.def>=4){
+        reason+=' <span style="color:var(--bad)">☠ Bevestigde 4×-zwakte — dit kan een OHKO worden, overweeg een ander antwoord als je iets achter de hand hebt.</span>';
+      }else{
+        const structRisk=structuralQuadRisk(mySlot);
+        if(structRisk.length)reason+=' <span style="color:var(--warn)">‼ '+nameFor(a.mi)+' heeft een structurele 4×-zwakte tegen '+structRisk.join('/')+' — nog niet bevestigd bij '+e.name+', maar als hij dat als coverage draagt is dit een OHKO-risico.</span>';
+      }
+      const verdict=matchupVerdict(mySlot,e.slot,a.cell.off,a.cell.def);
+      const verdictBadge='<span class="healthBadge '+verdict.cls+'" style="margin-left:8px">'+verdict.label+(verdict.unknowns.length?' ?':'')+'</span>';
+
+      const dmgR=await bestDamageRoll(mySlot,'mine',e.slot,'theirs',{});
+      const dmgLine=dmgR.ok?('<div style="margin-top:4px;font-size:12px;color:var(--muted)">Schade: <b>'+dmgR.percent.min+'–'+dmgR.percent.max+'%</b></div>'):'';
+
+      const altLines=[];
+      for(const mi of best.combo.filter(x=>x!==a.mi)){
+        if(speedEdge(mineTeam[mi],e.slot)!=='faster')continue;
+        const rc=realMatrix[mi][e.idx];
+        const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+        if(rc.defW===3&&(!shieldReliant||hasMultiHitMove(e.slot)))continue;
+        const r=await bestDamageRoll(mineTeam[mi],'mine',e.slot,'theirs',{});
+        if(!r.ok||r.percent.min<50)continue;
+        const label=r.percent.min>=100?'verslaat hem al':'doet ook al hard damage';
+        altLines.push('<div style="margin-top:2px;font-size:11.5px;color:var(--good)">✓ Hoeft niet te wisselen: <b>'+nameFor(mi)+'</b> '+label+' met '+r.move+' (~'+r.percent.min+'–'+r.percent.max+'%).</div>');
+      }
+
+      box.innerHTML='<div style="font-family:\'Oswald\';font-weight:700;font-size:15px;color:var(--good)">✓ Zet '+nameFor(a.mi)+' in'+verdictBadge+'</div>'
+        +'<div style="font-size:12.5px;margin-top:4px">'+reason+'</div>'
+        +dmgLine+altLines.join('');
     };
   });
   spriteChipTasks.forEach(t=>{

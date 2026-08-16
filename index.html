@@ -1471,13 +1471,29 @@ async function computeDamageRoll(attackerSlot,side,move,defenderSlot,defenderSid
     const hi=Math.floor(base*stab*typeEff*critMult*1.00);
     return{min:lo,avg:Math.floor((lo+hi)/2),max:hi};
   }
-  const dmg=roll(1), dmgCrit=roll(1.5);
+  let dmg=roll(1), dmgCrit=roll(1.5);
+  /* minHits/maxHits werden al opgehaald (fetchMoveData) maar nergens gebruikt — elke
+     multi-hit-move (Icicle Spear, Bullet Seed, Population Bomb, ...) werd dus overal in de
+     app als ÉÉN klap gerekend. Ontdekt via een hypothetisch scenario dat de gebruiker
+     aandroeg: Icicle Spear toont 1-klaps 22,7–27,3% (oogt onschuldig), maar slaat 2-5 keer —
+     bij 5 klappen is dat zelfs ná de door Disguise geblokkeerde eerste klap nog ~109%, een
+     gegarandeerde dood die nergens zichtbaar werd. Bij een vaste hitcount (minHits===maxHits,
+     bv. Surging Strikes 3×) is het gemiddelde triviaal; bij de klassieke variabele 2-5-hit
+     move geldt sinds Gen 5 een vaste, goed gedocumenteerde kansverdeling (35/35/15/15% voor
+     2/3/4/5 klappen) met verwachtingswaarde 3,1 — dat gebruiken we voor de gemiddelde kolom. */
+  const hitMin=moveData.minHits||1,hitMax=moveData.maxHits||1;
+  const hitAvg=hitMin===hitMax?hitMin:3.1;
+  if(hitMax>1){
+    const scale=r=>({min:r.min*hitMin,avg:Math.round(r.avg*hitAvg),max:r.max*hitMax});
+    dmg=scale(dmg);dmgCrit=scale(dmgCrit);
+  }
   const maxHp=defStats.hp;
   const toPct=r=>({min:+(r.min/maxHp*100).toFixed(1),avg:+(r.avg/maxHp*100).toFixed(1),max:+(r.max/maxHp*100).toFixed(1)});
 
   return{
     ok:true,power,type:move.type,category:move.cat,stab,typeEff,critChance,
     percent:toPct(dmg),critPercent:toPct(dmgCrit),
+    multihit:hitMax>1?{minHits:hitMin,maxHits:hitMax}:null,
     dataQuality:{attackerStatsSource:atkStats.source,defenderStatsSource:defStats.source,movePowerSource:moveData.source}
   };
 }

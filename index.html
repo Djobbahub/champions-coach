@@ -3226,15 +3226,11 @@ function renderMatchupOverlay(){
         nowConfirmed=true;
       }
       renderMatchupOverlay();
+      /* Geen auto-scroll meer naar het antwoord in Advies — vulde zich toch al, gewoon niet
+         meer automatisch de pagina laten springen. */
       if(nowConfirmed){
         const btn=document.getElementById('leadPickBtn-'+e.idx);
-        if(btn){
-          btn.click();
-          requestAnimationFrame(()=>{
-            const box=document.getElementById('leadAnswerBox');
-            if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
-          });
-        }
+        if(btn)btn.click();
       }
     };
     const top3Idx=enemyTop3.indexOf(e.idx);

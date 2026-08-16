@@ -2344,7 +2344,7 @@ function initTeamPanel(){
   rebuildMineSlots();rebuildTheirsSlots();
   renderSavedTeamsRow();
   wireArmedButton(document.getElementById('clearMine'),'Zeker weten?',()=>{mineTeam=Array.from({length:6},newSlot);saveTeams();rebuildMineSlots();computeAdvice();});
-  document.getElementById('clearTheirs').onclick=()=>{enemyTeam=Array.from({length:6},newSlot);confirmedEnemyLeadIdx=null;saveTeams();rebuildTheirsSlots();computeAdvice();};
+  document.getElementById('clearTheirs').onclick=()=>{enemyTeam=Array.from({length:6},newSlot);confirmedEnemyLeadIdx=null;confirmedEnemyOthers=[];saveTeams();rebuildTheirsSlots();computeAdvice();};
   const mwxModeMine=document.getElementById('mwxModeMine'),mwxModeEnemy=document.getElementById('mwxModeEnemy');
   if(mwxModeMine&&mwxModeEnemy){
     mwxModeMine.onclick=()=>{mwxMode='mine';mwxModeMine.setAttribute('aria-pressed','true');mwxModeEnemy.setAttribute('aria-pressed','false');renderMatchupOverlay();};
@@ -2926,12 +2926,16 @@ let mwxData=null;
 let mwxMode='mine';
 let mwxShowLight=false;
 let mwxRAF=null;
-/* Bevestigde ECHTE lead voor dit potje — gezet door op zijn kaart te klikken (buiten het
-   naamveld/toggle/etc.), overschrijft de voorspelling voor positie 1. null = nog geen potje
-   gestart / nog niet bevestigd, dan geldt de voorspelling. Wordt gevalideerd in
-   renderMatchupOverlay() (verwijderd als die tegenstander niet meer ingevuld is) en expliciet
-   gereset bij "Wis tegenstander". */
+/* Bevestigde ECHTE lead/team voor dit potje — gezet door op zijn kaart te klikken (buiten het
+   naamveld/toggle/etc.). Volgorde van klikken bepaalt de rol, net als een echt potje: de
+   EERSTE bevestigde kaart is altijd de lead (overschrijft de voorspelling voor positie 1);
+   daarna bevestigde kaarten (max 2) zijn zijn 2e/3e daadwerkelijk gekozen Pokémon, in de
+   volgorde dat je ze ziet verschijnen — geen aparte knop/modus nodig. Nogmaals klikken op een
+   al-bevestigde kaart heft 'm weer op. Beide worden gevalideerd in renderMatchupOverlay()
+   (verwijderd als die tegenstander niet meer ingevuld is) en expliciet gereset bij
+   "Wis tegenstander". */
 let confirmedEnemyLeadIdx=null;
+let confirmedEnemyOthers=[];
 function guaranteedDeath(mi,e,realMatrix){
   const rc=realMatrix[mi][e.idx];
   if(rc.defW!==3)return false;
@@ -2990,13 +2994,16 @@ function renderMatchupOverlay(){
   enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
   const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
 
-  /* Bevestigde lead (klik) wint altijd positie 1; zonder bevestiging geldt de voorspelling.
-     Positie 2/3 komen uit de coverage-top, met de lead/bevestigde overgeslagen als die daar
-     toevallig ook al in stond — zo blijven het altijd 3 verschillende tegenstanders. */
+  /* Bevestigde lead (klik) wint altijd positie 1; bevestigde teamleden (2e klik, 3e klik —
+     max 2) winnen positie 2/3, in de volgorde dat ze bevestigd zijn. Onbevestigde plekken
+     vallen terug op de voorspelling (predictedLeads/coverage-top), met alles wat al bevestigd
+     staat overgeslagen zodat het altijd 3 verschillende tegenstanders blijven. */
   if(confirmedEnemyLeadIdx!=null&&!enemyFilled.some(e=>e.idx===confirmedEnemyLeadIdx))confirmedEnemyLeadIdx=null;
+  confirmedEnemyOthers=confirmedEnemyOthers.filter(idx=>enemyFilled.some(e=>e.idx===idx));
   const enemyTop3=[];
   if(confirmedEnemyLeadIdx!=null)enemyTop3.push(confirmedEnemyLeadIdx);
   else if(predictedLeads.length)enemyTop3.push(predictedLeads[0].idx);
+  confirmedEnemyOthers.forEach(idx=>{if(enemyTop3.length<3&&!enemyTop3.includes(idx))enemyTop3.push(idx);});
   picks.forEach(p=>{if(enemyTop3.length<3&&!enemyTop3.includes(p.idx))enemyTop3.push(p.idx);});
 
   let mBench=0;
@@ -3012,7 +3019,7 @@ function renderMatchupOverlay(){
     if(!el)return;
     const top3Idx=enemyTop3.indexOf(e.idx);
     el.style.order=top3Idx!==-1?String(top3Idx):String(3+(eBench++));
-    el.classList.toggle('mwxConfirmed',confirmedEnemyLeadIdx===e.idx);
+    el.classList.toggle('mwxConfirmed',confirmedEnemyLeadIdx===e.idx||confirmedEnemyOthers.includes(e.idx));
   });
 
   const gridRect=grid.getBoundingClientRect();
@@ -3198,15 +3205,28 @@ function renderMatchupOverlay(){
     const er=enemyRects[e.idx];if(!er)return;
     er.el.onmouseenter=null;er.el.onmousemove=null;er.el.onmouseleave=null;
     er.el.style.cursor='pointer';
-    /* Klik ergens op de kaart (niet op het naamveld/toggle/select/etc.) = "dit is de
-       daadwerkelijke lead voor dit potje" — bevestiging wint van de voorspelling voor positie
-       1, en hergebruikt meteen de bestaande "Tegenstander opent met"-knop/antwoord in Advies
-       i.p.v. nieuwe adviceslogica. Nogmaals klikken heft de bevestiging weer op. */
+    /* Klik ergens op de kaart (niet op het naamveld/toggle/select/etc.) bevestigt 'm — de
+       VOLGORDE van klikken bepaalt de rol, zoals een echt potje: eerste bevestigde kaart =
+       lead, daarna bevestigde kaarten (max 2) = zijn 2e/3e daadwerkelijk gekozen Pokémon,
+       geen aparte knop/modus nodig. Elke bevestiging hergebruikt meteen de bestaande
+       "Tegenstander opent met"-knop/antwoord in Advies i.p.v. nieuwe adviceslogica. Nogmaals
+       klikken op een al-bevestigde kaart heft 'm weer op. */
     er.el.onclick=function(evt){
       if(evt.target.closest('input,select,button,.slotAc,a'))return;
-      confirmedEnemyLeadIdx=confirmedEnemyLeadIdx===e.idx?null:e.idx;
-      renderMatchupOverlay();
+      let nowConfirmed=false;
       if(confirmedEnemyLeadIdx===e.idx){
+        confirmedEnemyLeadIdx=null;
+      }else if(confirmedEnemyOthers.includes(e.idx)){
+        confirmedEnemyOthers=confirmedEnemyOthers.filter(idx=>idx!==e.idx);
+      }else if(confirmedEnemyLeadIdx===null){
+        confirmedEnemyLeadIdx=e.idx;
+        nowConfirmed=true;
+      }else if(confirmedEnemyOthers.length<2){
+        confirmedEnemyOthers=confirmedEnemyOthers.concat([e.idx]);
+        nowConfirmed=true;
+      }
+      renderMatchupOverlay();
+      if(nowConfirmed){
         const btn=document.getElementById('leadPickBtn-'+e.idx);
         if(btn){
           btn.click();
@@ -3220,10 +3240,11 @@ function renderMatchupOverlay(){
     const top3Idx=enemyTop3.indexOf(e.idx);
     const specs=[];
     if(top3Idx===0){
-      if(confirmedEnemyLeadIdx===e.idx)specs.push({kind:'confirmed'});
+      if(confirmedEnemyLeadIdx===e.idx)specs.push({kind:'confirmed',label:'LEAD'});
       else if(predictedLeads.length&&predictedLeads[0].idx===e.idx)specs.push({kind:'lead1',lead:predictedLeads[0]});
     }else if(top3Idx===1||top3Idx===2){
-      specs.push({kind:'trio',rank:top3Idx+1});
+      if(confirmedEnemyOthers.includes(e.idx))specs.push({kind:'confirmed',label:String(top3Idx+1)});
+      else specs.push({kind:'trio',rank:top3Idx+1});
     }
     const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
     if(leadRank===1&&top3Idx!==0)specs.push({kind:'lead2',lead:predictedLeads[1]});
@@ -3232,8 +3253,8 @@ function renderMatchupOverlay(){
       if(spec.kind==='confirmed'){
         const b=document.createElement('div');
         b.className='mwxConfirmedBadge';
-        b.innerHTML='<span class="ic">✓</span><span class="lbl">LEAD</span>';
-        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — bevestigde lead</b><br>Door jou aangeklikt als de daadwerkelijke opener dit potje. Klik nogmaals op de kaart om dit ongedaan te maken.');
+        b.innerHTML='<span class="ic">✓</span><span class="lbl">'+spec.label+'</span>';
+        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — bevestigd'+(spec.label==='LEAD'?' als lead</b><br>Door jou aangeklikt als de daadwerkelijke opener dit potje.':' (#'+spec.label+')</b><br>Door jou aangeklikt als daadwerkelijk door hem gekozen.')+' Klik nogmaals op de kaart om dit ongedaan te maken.');
         return b;
       }
       if(spec.kind==='lead1'){

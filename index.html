@@ -1461,6 +1461,22 @@ function resolveSlotStats(slot,side){
    zelfde risico-afweging als bij de stage/crit-interactie hierboven. */
 const CRIT_STAGE_RATE={0:1/24,1:1/8,2:1/2,3:1};
 
+/* Een paar moves negeren de normale "Physical = Atk/Def, Special = SpA/SpD"-koppeling
+   volledig, en de damage-engine deed dat tot nu toe NERGENS na — isPhys stuurde zowel de
+   aanvaller- als verdedigerstat aan, voor alle moves. Ontdekt via een echt verloren potje
+   (Umbreon's Foul Play tegen Garchomp: de engine rekende met Umbreon's eigen, lage Atk i.p.v.
+   Garchomp's 182 Atk, en toonde dus een veel te lage dreiging) plus een blinde vlek in het
+   eigen team (Mega Delphox's Psyshock, Special-categorie maar raakt de Def-stat, werd tegen
+   Spd afgerekend). atkSource='defender' => gebruik defStats.atk i.p.v. atkStats.[atk|spa].
+   defStat='def' => gebruik defStats.def i.p.v. defStats.spd. Bewust GEEN atkStat-kind
+   ability/item-mods (Huge Power, Choice Band/Specs, Guts) op de geleende stat toegepast —
+   die boosten specifiek de EIGEN Atk/SpA van de aanvaller, niet de stat die hier geleend
+   wordt; Life Orb en andere 'power'-kind mods blijven wel gewoon van toepassing. */
+const MOVE_STAT_OVERRIDE={
+  "Foul Play":{atkSource:'defender'},
+  "Psyshock":{defStat:'def'}
+};
+
 async function computeDamageRoll(attackerSlot,side,move,defenderSlot,defenderSide,options){
   options=options||{};
   if(!move||!move.name||move.cat==='Status')return{ok:false,reason:'not-damaging'};
@@ -1479,31 +1495,35 @@ async function computeDamageRoll(attackerSlot,side,move,defenderSlot,defenderSid
   const typeEff=effTypes(move.type,defTypes);
 
   const isPhys=move.cat==='Physical';
+  const statOverride=MOVE_STAT_OVERRIDE[move.name];
+  const defStatKey=(statOverride&&statOverride.defStat)||(isPhys?'def':'spd');
 
   let atkStage=0;
-  if(options.afterOwnSetup){
-    const setup=attackerSlot.moves.find(mv=>mv.name&&SETUP_MOVE_STAGES[mv.name]);
-    if(setup){const st=SETUP_MOVE_STAGES[setup.name];atkStage+=(isPhys?st.atk:st.spa)||0;}
+  if(!statOverride||!statOverride.atkSource){
+    if(options.afterOwnSetup){
+      const setup=attackerSlot.moves.find(mv=>mv.name&&SETUP_MOVE_STAGES[mv.name]);
+      if(setup){const st=SETUP_MOVE_STAGES[setup.name];atkStage+=(isPhys?st.atk:st.spa)||0;}
+    }
+    if(defenderSlot.ability==='Intimidate'&&isPhys)atkStage-=1;
   }
-  if(defenderSlot.ability==='Intimidate'&&isPhys)atkStage-=1;
 
   let defStage=0;
   const stageRow=ABILITY_DMG_MODIFIERS[defenderSlot.ability];
-  if(stageRow&&stageRow.role==='defender'&&stageRow.kind==='stage'&&stageRow.stat===(isPhys?'def':'spd')){
+  if(stageRow&&stageRow.role==='defender'&&stageRow.kind==='stage'&&stageRow.stat===defStatKey){
     const hits=options.defenderHitsTaken!=null?options.defenderHitsTaken:1;
     defStage+=stageRow.deltaPerHit*Math.min(6,hits);
   }
 
-  let A=applyStage(isPhys?atkStats.atk:atkStats.spa, atkStage);
+  let A=applyStage(statOverride&&statOverride.atkSource==='defender'?defStats.atk:(isPhys?atkStats.atk:atkStats.spa), atkStage);
   if(attackerSlot.status==='brn'&&isPhys&&attackerSlot.ability!=='Guts')A=Math.floor(A*0.5);
-  let D=applyStage(isPhys?defStats.def:defStats.spd, defStage);
+  let D=applyStage(defStats[defStatKey], defStage);
 
   const atkCtx={move,moveData,typeEff,slot:attackerSlot};
   const defCtx={move,moveData,typeEff,slot:defenderSlot};
   const atkMods=resolveDmgModifiers(attackerSlot,'attacker',atkCtx);
   const defMods=resolveDmgModifiers(defenderSlot,'defender',defCtx);
-  atkMods.filter(m=>m.kind==='atkStat').forEach(m=>{A=Math.floor(A*m.mult);});
-  defMods.filter(m=>m.kind==='defStat'&&m.stat===(isPhys?'def':'spd')).forEach(m=>{D=Math.floor(D*m.mult);});
+  if(!statOverride||!statOverride.atkSource)atkMods.filter(m=>m.kind==='atkStat').forEach(m=>{A=Math.floor(A*m.mult);});
+  defMods.filter(m=>m.kind==='defStat'&&m.stat===defStatKey).forEach(m=>{D=Math.floor(D*m.mult);});
 
   let power=moveData.power;
   atkMods.filter(m=>m.kind==='power').forEach(m=>{power=Math.floor(power*m.mult);});

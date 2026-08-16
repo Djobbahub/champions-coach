@@ -3025,6 +3025,13 @@ async function computeAdvice(){
       });
       const typeBadges=leadStructRisk.map(t=>'<span class="typebadge" style="background:'+COLOR[t]+';color:'+ink(COLOR[t])+';font-size:9px;padding:2px 6px">'+t+'</span>').join('');
       const parts=[...groups.entries()].map(([mi,enemies])=>'als '+enemies.map(e=>spriteChip(e.name)).join(' of ')+' opent → switch naar '+spriteChip(nameFor(mi)));
+      /* Reden = direct afgeleid van de echte leadkeuze-factor (net-score van de trio-berekening
+         + snelheid), geen losse tekst. Bewust de korte, altijd-werkende vorm (geen afhankelijkheid
+         van een voorspelde vijandelijke lead) — dat was de voorkeur bij het kiezen tussen de twee
+         geteste varianten. */
+      const leadSpe=effSpeed(mineTeam[leadMi]);
+      const leadReason=nameFor(leadMi)+' leadt — beste aanval-risico-verhouding van je drietal'+(leadSpe!=null?' (Spe '+leadSpe+')':'')+'.';
+      html+='<div class="advWhy">🎯 '+leadReason+'</div>';
       html+='<div class="advWarn">☠ Lead '+spriteChip(nameFor(leadMi))+' 4× zwak tegen '+typeBadges+' — '+parts.join('; ')+'.</div>';
     }
   }

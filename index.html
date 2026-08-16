@@ -368,7 +368,7 @@
     <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#1c8a4f" stroke-width="1.75" stroke-linecap="round"/></svg>Licht voordeel</span>
     <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>
     <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>
-    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 (Enemy perspective)</span>
+    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 — klik hierboven op "Enemy perspective" om ze te zien</span>
   </div>
 
   <div class="label" style="margin-top:22px"><span>Advies</span><span class="rule"></span></div>
@@ -2997,35 +2997,62 @@ function renderMatchupOverlay(){
   const linesLayer=mel('g',{}),hitLayer=mel('g',{});
   svg.appendChild(linesLayer);svg.appendChild(hitLayer);
 
-  function bezier(a,b){
-    const midX=(a.right+b.left)/2;
-    return 'M'+a.right+','+a.midY+' C '+midX+','+a.midY+' '+midX+','+b.midY+' '+b.left+','+b.midY;
+  function bezier(x1,y1,x2,y2){
+    const midX=(x1+x2)/2;
+    return 'M'+x1+','+y1+' C '+midX+','+y1+' '+midX+','+y2+' '+x2+','+y2;
   }
+  /* Verdeelt N lijn-eindpunten over een veilige verticale band van de kaart (niet in de
+     sprite/naam-rij bovenaan, niet tegen de onderrand) i.p.v. ze allemaal op de verticale
+     middenlijn te laten samenkomen — anders vertrekken/komen meerdere lijnen op exact
+     hetzelfde pixel-punt aan, wat niet te ontwarren is bij een kaart met meerdere lijnen. */
+  function spreadY(rect,count,index){
+    const lo=rect.top+22,hi=rect.bottom-14;
+    if(count<=1||hi<=lo)return(lo+hi)/2;
+    return lo+(hi-lo)*(index/(count-1));
+  }
+
+  /* Pass 1: welke paren krijgen een lijn — inclusief of het een ECHTE %-berekening is of de
+     kale type-tabel-fallback (geen bevestigde stats/moves bekend, bv. een enkel getypt "Dark
+     Fairy"-vak zonder herkende naam). Bij zo'n fallback is "licht voordeel" niet een klein
+     bevestigd effect om te verbergen — het is het ENIGE signaal dat er is, dus die telt niet
+     mee voor de "Lichte voordelen"-toggle en wordt altijd getoond. */
+  const activeLines=[];
   mineFilled.forEach(m=>{
     const mr=mineRects[m.idx];if(!mr)return;
     enemyFilled.forEach(e=>{
       const er=enemyRects[e.idx];if(!er)return;
       const rc=realMatrix[m.idx][e.idx],dead=guaranteedDeath(m.idx,e,realMatrix);
+      const fallback=mwxMode==='mine'?!rc.offMove:!rc.defMove;
       let tier=null,info='';
       if(mwxMode==='mine'){
         if(dead){tier='danger';info='☠ Gegarandeerde KO-dreiging — '+pairReason(rc,'def')+'.';}
         else if(rc.offW>=2){tier='strong';info=m.name+' → '+e.name+': '+pairReason(rc,'off')+'.';}
-        else if(rc.offW===1){tier='moderate';info=m.name+' → '+e.name+': '+pairReason(rc,'off')+' (licht voordeel).';}
+        else if(rc.offW===1){tier='moderate';info=m.name+' → '+e.name+': '+pairReason(rc,'off')+(fallback?' (o.b.v. type, geen bevestigde data).':' (licht voordeel).');}
       }else{
         if(dead){tier='strong';info='☠ '+e.name+' → '+m.name+': '+pairReason(rc,'def')+'.';}
-        else if(rc.defW===2){tier='moderate';info=e.name+' → '+m.name+': '+pairReason(rc,'def')+'.';}
+        else if(rc.defW===2){tier='moderate';info=e.name+' → '+m.name+': '+pairReason(rc,'def')+(fallback?' (o.b.v. type, geen bevestigde data).':'.');}
       }
       if(!tier)return;
-      if(tier==='moderate'&&!mwxShowLight)return;
-      const st=TIER[tier],d=bezier(mr,er);
-      const p=mel('path',{d,fill:'none',stroke:st.stroke,'stroke-width':st.width,'stroke-dasharray':st.dash,opacity:st.opacity,'stroke-linecap':'round'});
-      linesLayer.appendChild(p);
-      const hit=mel('path',{d,fill:'none',stroke:'#000','stroke-width':14,opacity:0,style:'pointer-events:stroke;cursor:pointer'});
-      hit.addEventListener('mouseenter',evt=>{p.setAttribute('stroke-width',st.width+1.5);showTip(evt,'<b>'+m.name+' ↔ '+e.name+'</b><br>'+info);});
-      hit.addEventListener('mousemove',moveTip);
-      hit.addEventListener('mouseleave',()=>{p.setAttribute('stroke-width',st.width);hideTip();});
-      hitLayer.appendChild(hit);
+      if(tier==='moderate'&&!mwxShowLight&&!fallback)return;
+      activeLines.push({m,mr,e,er,tier,info});
     });
+  });
+  const outSeen={},inSeen={},outCount={},inCount={};
+  activeLines.forEach(l=>{outCount[l.m.idx]=(outCount[l.m.idx]||0)+1;inCount[l.e.idx]=(inCount[l.e.idx]||0)+1;});
+  activeLines.forEach(l=>{
+    l.outIdx=outSeen[l.m.idx]||0;outSeen[l.m.idx]=l.outIdx+1;
+    l.inIdx=inSeen[l.e.idx]||0;inSeen[l.e.idx]=l.inIdx+1;
+  });
+  activeLines.forEach(({m,mr,e,er,tier,info,outIdx,inIdx})=>{
+    const y1=spreadY(mr,outCount[m.idx],outIdx),y2=spreadY(er,inCount[e.idx],inIdx);
+    const st=TIER[tier],d=bezier(mr.right,y1,er.left,y2);
+    const p=mel('path',{d,fill:'none',stroke:st.stroke,'stroke-width':st.width,'stroke-dasharray':st.dash,opacity:st.opacity,'stroke-linecap':'round'});
+    linesLayer.appendChild(p);
+    const hit=mel('path',{d,fill:'none',stroke:'#000','stroke-width':14,opacity:0,style:'pointer-events:stroke;cursor:pointer'});
+    hit.addEventListener('mouseenter',evt=>{p.setAttribute('stroke-width',st.width+1.5);showTip(evt,'<b>'+m.name+' ↔ '+e.name+'</b><br>'+info);});
+    hit.addEventListener('mousemove',moveTip);
+    hit.addEventListener('mouseleave',()=>{p.setAttribute('stroke-width',st.width);hideTip();});
+    hitLayer.appendChild(hit);
   });
 
   /* Badges staan in de gereserveerde 60px-marge LINKS van #mineSlots (rank/lead) resp. RECHTS

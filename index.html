@@ -590,8 +590,8 @@ function enemyThreatWeight(enemySlot){
   let w=enemyOffFactor(enemySlot);
   const d=resolvedDex(enemySlot);
   const bd=d&&bdBattleCache[d[0]];
-  const hasPriority=enemySlot.moves.some(mv=>mv.name&&moveTag(mv.name)==='priority')
-    ||(bd&&bd.moves.slice(0,3).some(m=>moveTag(m.name)==='priority'));
+  const hasPriority=enemySlot.moves.some(mv=>mv.name&&hasMoveTag(mv.name,'priority'))
+    ||(bd&&bd.moves.slice(0,3).some(m=>hasMoveTag(m.name,'priority')));
   if(hasPriority)w*=1.3;
   return w;
 }
@@ -909,7 +909,7 @@ const MOVES={
   "Rock Slide":["Rock","Physical"],"Power Gem":["Rock","Special"],"Head Smash":["Rock","Physical"],"Rock Blast":["Rock","Physical","multihit"],
   "Shadow Ball":["Ghost","Special"],"Shadow Claw":["Ghost","Physical"],"Poltergeist":["Ghost","Physical"],"Phantom Force":["Ghost","Physical"],
   "Shadow Sneak":["Ghost","Physical","priority"],"Dragon Claw":["Dragon","Physical"],"Dragon Pulse":["Dragon","Special"],"Draco Meteor":["Dragon","Special","selflower"],
-  "Outrage":["Dragon","Physical"],"Dragon Dance":["Dragon","Status","setup"],"Dragon Darts":["Dragon","Physical"],"Crunch":["Dark","Physical"],
+  "Outrage":["Dragon","Physical"],"Dragon Dance":["Dragon","Status","setup"],"Dragon Darts":["Dragon","Physical","multihit"],"Crunch":["Dark","Physical"],
   "Dark Pulse":["Dark","Special"],"Sucker Punch":["Dark","Physical","priority"],"Foul Play":["Dark","Physical"],"Iron Head":["Steel","Physical"],
   "Flash Cannon":["Steel","Special"],"Meteor Mash":["Steel","Physical"],"Bullet Punch":["Steel","Physical","priority"],"Iron Tail":["Steel","Physical"],
   "Make It Rain":["Steel","Special"],"Moonblast":["Fairy","Special"],"Dazzling Gleam":["Fairy","Special"],"Play Rough":["Fairy","Physical"],
@@ -928,13 +928,24 @@ const MOVES={
   "Alluring Voice":["Fairy","Special"],"Temper Flare":["Fire","Physical"],"Supercell Slam":["Electric","Physical"],"Blazing Torque":["Fire","Physical"],
   "Mortal Spin":["Poison","Physical"],"Fiery Wrath":["Dark","Special"],"Trailblaze":["Grass","Physical"],"Bitter Blade":["Fire","Physical","drain"],
   "Flower Trick":["Grass","Physical","alwayscrit"],"Frost Breath":["Ice","Special","alwayscrit"],"Storm Throw":["Fighting","Physical","alwayscrit"],
-  "Wicked Blow":["Dark","Physical","alwayscrit"],"Surging Strikes":["Water","Physical","alwayscrit"],
+  "Wicked Blow":["Dark","Physical","alwayscrit"],"Surging Strikes":["Water","Physical","alwayscrit","multihit"],
   "Comeuppance":["Dark","Physical"],"Wave Crash":["Water","Physical"],"Aqua Step":["Water","Physical"],"Raging Bull":["Normal","Physical"],
   "Blizzard Blade":["Ice","Physical"],"Splintered Stormshards":["Rock","Physical"],"Astral Barrage":["Ghost","Special"],
   "Behemoth Blade":["Steel","Physical"],"Dire Claw":["Poison","Physical"],"Torch Song":["Fire","Special"],"Aqua Cutter":["Water","Physical"],
   "Ceaseless Edge":["Poison","Physical"],"Barb Barrage":["Poison","Physical"],"Esper Wing":["Psychic","Special"],"Jet Punch":["Water","Physical","priority"],
-  "Accelerock":["Rock","Physical","priority"],"First Impression":["Bug","Physical","priority"],"Water Shuriken":["Water","Special","priority"],
-  "Triple Axel":["Ice","Physical","multihit"]
+  "Accelerock":["Rock","Physical","priority"],"First Impression":["Bug","Physical","priority"],"Water Shuriken":["Water","Special","priority","multihit"],
+  "Triple Axel":["Ice","Physical","multihit"],
+  /* Ontdekt via een echt verloren potje: Icicle Spear (47% usage bij Mamoswine) had geen
+     multihit-tag, waardoor de "kan je Disguise/Sash/Sturdy in dezelfde beurt doorbreken"-
+     waarschuwing niet afging. Bij die gelegenheid gelijk de rest van de bekende mainline
+     multi-hit-moves aangevuld die nog volledig ontbraken in deze tabel. */
+  "Bullet Seed":["Grass","Physical","multihit"],"Icicle Spear":["Ice","Physical","multihit"],"Pin Missile":["Bug","Physical","multihit"],
+  "Bone Rush":["Ground","Physical","multihit"],"Scale Shot":["Dragon","Physical","multihit"],"Dual Chop":["Dragon","Physical","multihit"],
+  "Tail Slap":["Normal","Physical","multihit"],"Gear Grind":["Steel","Physical","multihit"],"Arm Thrust":["Fighting","Physical","multihit"],
+  "Twineedle":["Bug","Physical","multihit"],"Comet Punch":["Normal","Physical","multihit"],"Fury Attack":["Normal","Physical","multihit"],
+  "Fury Swipes":["Normal","Physical","multihit"],"Spike Cannon":["Normal","Physical","multihit"],"Barrage":["Normal","Physical","multihit"],
+  "Double Slap":["Normal","Physical","multihit"],"Triple Kick":["Fighting","Physical","multihit"],
+  "Double Iron Bash":["Steel","Physical","multihit"],"Tachyon Cutter":["Steel","Special","multihit"]
 };
 function moveLookup(name){
   const key=Object.keys(MOVES).find(k=>k.toLowerCase()===String(name).trim().toLowerCase());
@@ -944,6 +955,17 @@ function moveTag(name){
   if(!name)return null;
   const key=Object.keys(MOVES).find(k=>k.toLowerCase()===String(name).trim().toLowerCase());
   return key?(MOVES[key][2]||null):null;
+}
+/* moveTag() geeft alleen de EERSTE tag terug — prima voor de mutueel-exclusieve
+   'wat voor soort move is dit'-categorieën (setup/recover/drain/poison/...), maar een move
+   kan ook meerdere onafhankelijke eigenschappen tegelijk hebben (bv. Surging Strikes is zowel
+   alwayscrit ALS multihit). Voor die "heeft dit move ook eigenschap X"-vraag dit gebruiken —
+   checkt ALLE tags, niet alleen de eerste. Ontdekt doordat een net toegevoegde multihit-tag
+   op Surging Strikes/Water Shuriken stilletjes genegeerd werd. */
+function hasMoveTag(name,tag){
+  if(!name)return false;
+  const key=Object.keys(MOVES).find(k=>k.toLowerCase()===String(name).trim().toLowerCase());
+  return key?MOVES[key].slice(2).includes(tag):false;
 }
 /* Move-power-laag (PokéAPI) voor de echte damage-formule — puur additief naast MOVES,
    die de bron blijft voor type/categorie in de UI. Nooit alle 937 moves vooraf ophalen:
@@ -2334,15 +2356,21 @@ function safeToSetup(mySlot,defMult){
   return mySlot.ability==='Disguise'||mySlot.ability==='Sturdy'||mySlot.item==='Focus Sash'||defMult<=1;
 }
 /* Checkt zowel expliciet ingevulde moves als live-bevestigde topmoves (≥20% usage) —
-   zelfde bron/patroon als de Stamina- en Mega-detectie hierboven. */
-function hasMultiHitMove(enemySlot){
-  const explicit=enemySlot.moves.find(mv=>mv.name&&moveTag(mv.name)==='multihit');
+   zelfde bron/patroon als de Stamina- en Mega-detectie hierboven. Herbruikbaar voor elke
+   move-tag (multihit, priority, ...) i.p.v. per tag dezelfde logica te dupliceren — dat
+   verschil (priority checkte voorheen ALLEEN expliciet ingevulde moves, dus miste Ice Shard
+   op 94,9% usage bij Mamoswine omdat niemand het handmatig had getypt) was precies waarom
+   de multi-hit-waarschuwing een keer niet afging in een echt verloren potje. */
+function hasTaggedMove(enemySlot,tag){
+  const explicit=enemySlot.moves.find(mv=>mv.name&&hasMoveTag(mv.name,tag));
   if(explicit)return explicit;
   const d=resolvedDex(enemySlot);
   const bd=d&&bdBattleCache[d[0]];
-  if(bd&&bd.moves)for(const m of bd.moves){if(m.pct!=null&&m.pct>=20&&moveTag(m.name)==='multihit')return{name:m.name};}
+  if(bd&&bd.moves)for(const m of bd.moves){if(m.pct!=null&&m.pct>=20&&hasMoveTag(m.name,tag))return{name:m.name};}
   return null;
 }
+function hasMultiHitMove(enemySlot){return hasTaggedMove(enemySlot,'multihit');}
+function hasPriorityMove(enemySlot){return hasTaggedMove(enemySlot,'priority');}
 function openerRecommendation(mySlot,enemySlot,enemyTypes,defMult){
   const damaging=mySlot.moves.filter(mv=>mv.name&&mv.cat!=='Status');
   if(!damaging.length)return'Geen moves ingevuld bij dit Pokémon — ga uit van STAB.';
@@ -2365,7 +2393,7 @@ function openerRecommendation(mySlot,enemySlot,enemyTypes,defMult){
          boost. De 'veilig om op te zetten'-framing hierboven is dan misleidend zonder deze
          waarschuwing: het is veilig voor 1 klap, geen garantie op een sweep erna. */
       const shieldUsed=mySlot.ability==='Disguise'||mySlot.ability==='Sturdy'||mySlot.item==='Focus Sash';
-      const enemyPriority=shieldUsed&&enemySlot.moves.find(mv=>mv.name&&moveTag(mv.name)==='priority');
+      const enemyPriority=shieldUsed&&hasPriorityMove(enemySlot);
       if(enemyPriority){
         text+=' <span style="color:var(--warn)">⚠ '+enemyPriority.name+' (priority) — bescherming geldt maar 1 klap, daarna raakt hij je alsnog eerst.</span>';
       }
@@ -2383,13 +2411,13 @@ function openerRecommendation(mySlot,enemySlot,enemyTypes,defMult){
   }
   if(blockedStab)text+=' <span style="color:var(--warn)">— '+blockedStab.mv.name+' genegeerd door '+enemySlot.ability+'.</span>';
   if(best.mult>0){
-    if(moveTag(best.mv.name)==='priority'){
+    if(hasMoveTag(best.mv.name,'priority')){
       text+=' <span style="color:var(--good)">(priority — jij eerst, ongeacht snelheid)</span>';
     }else{
-      const priorityAlt=evaluated.find(e=>e.mult>0&&moveTag(e.mv.name)==='priority'&&e.mv!==best.mv);
+      const priorityAlt=evaluated.find(e=>e.mult>0&&hasMoveTag(e.mv.name,'priority')&&e.mv!==best.mv);
       if(priorityAlt&&defMult>=2)text+=' <span style="color:var(--warn)">Overweeg <b>'+priorityAlt.mv.name+'</b> (priority, '+fmt(priorityAlt.mult)+') — gaat sowieso eerst.</span>';
     }
-    if(moveTag(best.mv.name)==='alwayscrit')text+=' <span style="color:var(--good)">(gegarandeerde crit — negeert Defense-boosts)</span>';
+    if(hasMoveTag(best.mv.name,'alwayscrit'))text+=' <span style="color:var(--good)">(gegarandeerde crit — negeert Defense-boosts)</span>';
   }
   if(enemySlot.ability==='Intimidate')text+=' <span style="color:var(--warn)">⚠ Intimidate — Attack -1 zodra hij binnenkomt.</span>';
   if(DEF_RISING_ON_HIT.has(enemySlot.ability)&&best.mv.cat==='Physical'){
@@ -2561,7 +2589,7 @@ function detectWinCondition(filled,side){
     const names=plausibleMoveNames(m,side);
     const setupName=names.find(n=>moveTag(n)==='setup');
     if(!setupName)continue;
-    const hasPriority=names.some(n=>moveTag(n)==='priority');
+    const hasPriority=names.some(n=>hasMoveTag(n,'priority'));
     const sash=m.slot.item==='Focus Sash'||m.slot.ability==='Sturdy'||m.slot.ability==='Disguise';
     const spe=teamSpeedVal(m,side);
     const enabler=sash?' (beschermd door '+(m.slot.item==='Focus Sash'?'Focus Sash':m.slot.ability)+')':hasPriority?' met priority om af te maken':spe!=null?' (snelheid ±'+spe+')':'';
@@ -2957,7 +2985,15 @@ async function computeAdvice(){
          aan de verdedigende kant: zijn (geschatte) echte power weegt mee, niet alleen zijn type. */
       const myPower=offPower(mineTeam[mi]);
       const theirPower=enemyOffFactor(e.slot);
-      const s=(c.off||0)*myPower-(c.def||0)*theirPower*speedRiskMult-structPenalty;
+      /* Disguise/Sturdy/Focus Sash claimt "overleeft de eerste klap gegarandeerd" — maar een
+         multi-hit-move van de tegenstander breekt dat schild binnen dezelfde beurt, waarna de
+         resterende klappen gewoon vol doorkomen. Zo'n keuze oogde daardoor veiliger dan hij
+         was (ontdekt via een echt verloren potje: Mimikyu tegen Mamoswine's Icicle Spear —
+         de waarschuwingstekst bestond al, maar de score zelf werd er niet minder aantrekkelijk
+         van). Zelfde grootte als structPenalty voor consistentie. */
+      const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+      const multihitPenalty=shieldReliant&&hasMultiHitMove(e.slot)?1.5:0;
+      const s=(c.off||0)*myPower-(c.def||0)*theirPower*speedRiskMult-structPenalty-multihitPenalty;
       if(s>bestScore+1e-9){bestScore=s;bestMi=mi;}
       else if(Math.abs(s-bestScore)<1e-9){
         /* Echte gelijke stand (zelfde risico-verhouding, bv. 2x raken/2x nemen vs 1x/1x):

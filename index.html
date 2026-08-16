@@ -1506,10 +1506,17 @@ async function bestDamageRoll(attackerSlot,side,defenderSlot,defenderSide,option
    (pts/coverageQuality) migreert hierheen — bestAnswer(), de switch-tabel, 4x-badges en
    matchupVerdict blijven bewust op de oude, per-matchup type-multiplier draaien; dat is een
    apart te valideren stap. */
-function realWeight(pct){
-  if(pct==null)return 0;
-  if(pct>=80)return 2;
-  if(pct>25)return 1;
+/* 4e, zwaardere tier bovenop de oorspronkelijke 0/1/2: een gegarandeerde OHKO op de
+   LAAGSTE roll (min ≥100%, sterft dus hoe dan ook) is fundamenteel iets anders dan "hoog
+   gemiddelde, overleeft meestal" — en dat verschil werd tot nu toe niet gezien. Ontdekt via
+   een echt verloren potje: Kingambit (106,8–125,6% tegen Mega Staraptor's Close Combat,
+   altijd dood) en Mega Charizard Y (76,8–91%, overleeft meestal) kregen daardoor exact
+   hetzelfde gewicht (2), terwijl het ene een gegarandeerd verlies is en het andere niet. */
+function realWeight(avgPct,minPct){
+  if(minPct!=null&&minPct>=100)return 3;
+  if(avgPct==null)return 0;
+  if(avgPct>=80)return 2;
+  if(avgPct>25)return 1;
   return 0;
 }
 /* Voor de "zij raken mij"-kant: als er geen echt ingevulde moves staan, val terug op de
@@ -1548,8 +1555,8 @@ async function computeRealMatrix(mineFilled,enemyFilled,matrix){
     const[off,def]=results[i];
     const fb=matrix[m.idx][e.idx];
     rm[m.idx][e.idx]={
-      offW: off.ok?realWeight(off.percent.avg):weight(fb.off),
-      defW: def.ok?realWeight(def.percent.avg):weight(fb.def)
+      offW: off.ok?realWeight(off.percent.avg,off.percent.min):weight(fb.off),
+      defW: def.ok?realWeight(def.percent.avg,def.percent.min):weight(fb.def)
     };
   });
   return rm;
@@ -2917,8 +2924,27 @@ async function computeAdvice(){
        brondekking mee, dus hier niet nogmaals met een aparte confidence vermenigvuldigen. */
     const leadBonus=predictedLeads.length?Math.max(...combo.map(leadMatchupBonus)):0;
     const hazeBns=Math.max(...combo.map(hazeBonus));
-    const score=coverageQuality*2-riskSum*.6-overlap+leadBonus+hazeBns;
-    return{combo,coverage,coverageQuality,riskSum,overlap,leadBonus,hazeBonus:hazeBns,score};
+    /* Een gegarandeerde OHKO (defW===3, min-roll ≥100%) tegen een zichtbare tegenstander is
+       geen "iets hoger risico" — het is de garantie dat dit teamlid die tegenstander nooit
+       overleeft. In riskSum (een som over alle 6 tegenstanders, keer 0.6) verdrinkt dat te
+       makkelijk in de rest van het gemiddelde. Ontdekt via een echt verloren potje: Kingambit
+       (gegarandeerde OHKO door Mega Staraptor's Close Combat, 86,7% kans op die Mega) bleef
+       toch in het drietal staan boven Mega Charizard Y (overleeft dezelfde aanval meestal),
+       omdat Kingambits bredere offensieve waarde tegen de andere 5 de kleine extra straf van
+       tier 3 t.o.v. tier 2 ruimschoots compenseerde. Een aparte, harde straf per betrokken lid
+       forceert dat een gegarandeerde dood altijd zwaar meetelt, ongeacht de rest van de som. */
+    /* Disguise/Sturdy/Focus Sash blokkeren de EERSTE klap volledig (0 schade, ongeacht hoe
+       hoog die had kunnen zijn) — een "gegarandeerde OHKO" tegen zo'n schild-drager is dus
+       meestal geen echt gevaar, tenzij de tegenstander ook een multi-hit-move draagt (die
+       breekt het schild alsnog, zelfde principe als de eerdere Mamoswine-fix in bestAnswer).
+       Zonder deze uitzondering zou Mimikyu hier onterecht afgestraft worden. */
+    const ohkoPenalty=combo.filter(mi=>enemyFilled.some(e=>{
+      if(realMatrix[mi][e.idx].defW!==3)return false;
+      const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+      return !shieldReliant||hasMultiHitMove(e.slot);
+    })).length*4;
+    const score=coverageQuality*2-riskSum*.6-overlap+leadBonus+hazeBns-ohkoPenalty;
+    return{combo,coverage,coverageQuality,riskSum,overlap,leadBonus,hazeBonus:hazeBns,ohkoPenalty,score};
   }).sort((a,b)=>b.score-a.score);
 
   const nameFor=mi=>mineFilled.find(x=>x.idx===mi).name;

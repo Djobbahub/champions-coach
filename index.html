@@ -245,6 +245,17 @@
   .switchRow .arr{color:var(--muted);}
   .switchRow b{color:var(--txt);}
   .teamAdviceEmpty{background:var(--panel);border:1px dashed var(--line);border-radius:14px;padding:22px 18px;text-align:center;color:var(--muted);font-size:13px;line-height:1.55;}
+  .mwxSeg{display:flex;gap:4px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:4px;margin:6px 0 8px;}
+  .mwxSeg button{flex:1;border:none;background:transparent;color:var(--muted);font-family:'Oswald';font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:9px 8px;border-radius:7px;cursor:pointer;}
+  .mwxSeg button[aria-pressed="true"]{background:var(--panel);color:var(--txt);box-shadow:inset 0 0 0 1px var(--line);}
+  .mwxCap{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:6px;min-height:32px;}
+  .mwxPanel{position:relative;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:8px 4px;overflow:visible;}
+  #mwxSvg{display:block;width:100%;height:auto;}
+  .mwxLegend{display:flex;flex-wrap:wrap;gap:14px;margin:10px 2px 0;font-size:11px;color:var(--muted);align-items:center;}
+  .mwxLegend .sw{display:inline-flex;align-items:center;gap:6px;}
+  .mwxLegend svg{display:block;}
+  .mwxTip{position:absolute;pointer-events:none;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:12.5px;line-height:1.5;color:var(--txt);max-width:230px;display:none;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.4);}
+  .mwxTip b{color:inherit;}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;}}
 </style>
 </head>
@@ -2979,7 +2990,23 @@ async function computeAdvice(){
   /* Gegarandeerd trager (mySpe<=min) én neemt reële schade (>=2x) = raakt jou eerst nog
      voordat je iets kan doen — net zo'n reëel lead-risico als een 4x-zwakte. */
   function speedRiskDetail(mi){return enemyFilled.filter(e=>speedEdge(mineTeam[mi],e.slot)==='slower'&&matrix[mi][e.idx].def>=2);}
-  const safeLeads=best.combo.filter(mi=>!quadRiskDetail(mi).length&&!speedRiskDetail(mi).length);
+  /* quadRiskDetail/speedRiskDetail kijken alleen naar de kale type-multiplier — die ziet een
+     mechanische dreiging zoals "multi-hit breekt Disguise" (Mamoswine's Icicle Spear tegen
+     Mimikyu: Ice/Ground vs Ghost/Fairy is puur typisch neutraal, dus geen 4x-zwakte) helemaal
+     niet. realMatrix wéét dit al (dezelfde fix als ohkoPenalty/bestAnswer's facesGuaranteedDeath),
+     maar telde tot nu toe alleen zacht mee in pts[mi].net — verdronk daar makkelijk tussen de
+     andere 5 matchups, precies zoals Kingambit eerder verdronk in de trio-riskSum vóór ohkoPenalty
+     bestond. Zonder deze harde check kon een lead met een reëel gegarandeerde-KO-risico gewoon
+     als "veilige lead" doorglippen zolang zijn typing toevallig neutraal was. */
+  function realQuadRiskDetail(mi){
+    return enemyFilled.filter(e=>{
+      const rc=realMatrix[mi][e.idx];
+      if(rc.defW!==3)return false;
+      const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+      return !shieldReliant||hasMultiHitMove(e.slot);
+    });
+  }
+  const safeLeads=best.combo.filter(mi=>!quadRiskDetail(mi).length&&!speedRiskDetail(mi).length&&!realQuadRiskDetail(mi).length);
   const leadPool=safeLeads.length?safeLeads:best.combo;
   /* predictedLeads/leadMatchupBonus zijn hierboven al gedefinieerd, vóór combinations3 — ze
      wegen nu al mee in WELKE 3 gekozen worden, niet pas hier bij wie ervan leadt. Deze stap
@@ -2990,7 +3017,7 @@ async function computeAdvice(){
     if(scoreMi>scoreLead+1e-9)leadMi=mi;
     else if(Math.abs(scoreMi-scoreLead)<1e-9){const s1=effSpeed(mineTeam[mi]),s2=effSpeed(mineTeam[leadMi]);if(s1!=null&&(s2==null||s1>s2))leadMi=mi;}
   });
-  const riskyMembers=best.combo.map(mi=>({mi,risks:quadRiskDetail(mi),speedRisks:speedRiskDetail(mi)})).filter(r=>r.risks.length||r.speedRisks.length);
+  const riskyMembers=best.combo.map(mi=>({mi,risks:quadRiskDetail(mi),speedRisks:speedRiskDetail(mi),realRisks:realQuadRiskDetail(mi)})).filter(r=>r.risks.length||r.speedRisks.length||r.realRisks.length);
   const allLeadsRisky=safeLeads.length===0;
   function riskReason(r){
     const parts=[];
@@ -3057,6 +3084,199 @@ async function computeAdvice(){
     return{mi:bestMi,cell:matrix[bestMi][e.idx]};
   }
 
+  /* Matchup web: bouwt een SVG-lijnenweb tussen mineFilled/enemyFilled, puur als visualisatie
+     van realMatrix/best.combo/leadMi die hierboven al bestaan — GEEN nieuwe beslislogica.
+     "Mijn team": groen = mijn voordeel (offW), rode stippellijn = gegarandeerde KO-dreiging op
+     mij (defW===3, met dezelfde schild/multi-hit-uitzondering als ohkoPenalty/bestAnswer).
+     "Enemy perspective": zelfde data omgekeerd — dikke lijnen tonen zíjn beste coverage tegen
+     mij, en ①②③ tonen de 3 tegenstanders met de hoogste Σ defW tegen mijn hele team (een
+     coverage-som-heuristiek, geen garantie voor zijn daadwerkelijke keuze). */
+  function guaranteedDeath(mi,e){
+    const rc=realMatrix[mi][e.idx];
+    if(rc.defW!==3)return false;
+    const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+    return !shieldReliant||hasMultiHitMove(e.slot);
+  }
+  function renderMatchupWeb(){
+    const svg=document.getElementById('mwxSvg'),cap=document.getElementById('mwxCap'),tip=document.getElementById('mwxTip');
+    const panel=svg&&svg.closest('.mwxPanel');
+    if(!svg||!cap||!tip||!panel)return;
+    const svgns='http://www.w3.org/2000/svg';
+    function mel(tag,attrs){const e2=document.createElementNS(svgns,tag);for(const k in attrs)e2.setAttribute(k,attrs[k]);return e2;}
+    function textW(s){return Math.round(s.length*5.4+16);}
+    const TIER={
+      strong:{stroke:'#3ddc84',width:3.5,dash:'',opacity:.95},
+      moderate:{stroke:'#1c8a4f',width:1.75,dash:'',opacity:.75},
+      danger:{stroke:'#ff5566',width:2.5,dash:'6,4',opacity:.95}
+    };
+    const ROWH=104,ROWSTART=76,RECT_W=170,RECT_H=88;
+    const rowCount=Math.max(mineFilled.length,enemyFilled.length,1);
+    svg.setAttribute('viewBox','0 0 700 '+(ROWSTART+(rowCount-1)*ROWH+RECT_H/2+40));
+
+    const nodes={};
+    mineFilled.forEach((m,i)=>{nodes['L'+m.idx]={idx:m.idx,side:'L',name:m.name,types:m.types,y:ROWSTART+i*ROWH,rectX:20};});
+    enemyFilled.forEach((e,i)=>{nodes['R'+e.idx]={idx:e.idx,side:'R',name:e.name,types:e.types,y:ROWSTART+i*ROWH,rectX:510};});
+    Object.values(nodes).forEach(n=>{n.rectTop=n.y-RECT_H/2;n.lineX=n.side==='L'?n.rectX+RECT_W:n.rectX;});
+
+    svg.innerHTML='';
+    const defs=mel('defs',{}),linesLayer=mel('g',{}),hitLayer=mel('g',{}),nodesLayer=mel('g',{});
+    svg.appendChild(defs);svg.appendChild(linesLayer);svg.appendChild(hitLayer);svg.appendChild(nodesLayer);
+
+    function showTip(evt,body){
+      const r=panel.getBoundingClientRect();
+      let x=evt.clientX-r.left+14,y=evt.clientY-r.top+14;
+      if(x+240>r.width)x=evt.clientX-r.left-254;
+      tip.style.left=x+'px';tip.style.top=y+'px';tip.innerHTML=body;tip.style.display='block';
+    }
+    function moveTip(evt){
+      const r=panel.getBoundingClientRect();
+      let x=evt.clientX-r.left+14,y=evt.clientY-r.top+14;
+      if(x+240>r.width)x=evt.clientX-r.left-254;
+      tip.style.left=x+'px';tip.style.top=y+'px';
+    }
+    function hideTip(){tip.style.display='none';}
+
+    const leadRankOthers=best.combo.filter(mi=>mi!==leadMi).sort((a,b)=>pts[b].net-pts[a].net);
+    const myRank={};
+    myRank[leadMi]={rank:1};
+    leadRankOthers.forEach((mi,i)=>{myRank[mi]={rank:i+2};});
+
+    Object.keys(nodes).forEach(key=>{
+      const n=nodes[key];
+      const g=mel('g',{});
+      const cardRect=mel('rect',{x:n.rectX,y:n.rectTop,width:RECT_W,height:RECT_H,rx:10,fill:'#1e242e',stroke:'#2a323e','stroke-width':1});
+      g.appendChild(cardRect);
+      const clipId='mwxClip-'+key;
+      const clip=mel('clipPath',{id:clipId});
+      clip.appendChild(mel('rect',{x:n.rectX+9,y:n.rectTop+9,width:30,height:30,rx:7}));
+      defs.appendChild(clip);
+      g.appendChild(mel('rect',{x:n.rectX+8,y:n.rectTop+8,width:32,height:32,rx:8,fill:'#161b23',stroke:'#2a323e','stroke-width':1}));
+      const img=mel('image',{x:n.rectX+9,y:n.rectTop+9,width:30,height:30,'clip-path':'url(#'+clipId+')'});
+      g.appendChild(img);
+      fetchSpriteUrl(n.name).then(url=>{
+        if(!url)return;
+        img.setAttribute('href',url);
+        img.setAttributeNS('http://www.w3.org/1999/xlink','href',url);
+      });
+      const t2=mel('text',{x:n.rectX+48,y:n.rectTop+28,fill:'#e8ecf1','font-size':13,'font-weight':600,'font-family':"'Oswald',sans-serif"});
+      t2.textContent=n.name;
+      g.appendChild(t2);
+
+      let bx=0,by=0;
+      const y0=n.rectTop+50;
+      (n.types||[]).forEach(t=>{
+        const bg=COLOR[t],fg=ink(bg),w=textW(t);
+        if(bx+w>154&&bx>0){bx=0;by+=18;}
+        g.appendChild(mel('rect',{x:n.rectX+8+bx,y:y0+by-11,width:w,height:15,rx:5,fill:bg}));
+        const bt=mel('text',{x:n.rectX+8+bx+w/2,y:y0+by,'text-anchor':'middle',fill:fg,'font-size':8.5,'font-weight':700,'font-family':'system-ui,sans-serif'});
+        bt.textContent=t;
+        g.appendChild(bt);
+        bx+=w+4;
+      });
+
+      if(n.side==='L'){
+        const pick=myRank[n.idx];
+        if(pick){
+          g.appendChild(mel('rect',{x:n.rectX-2,y:n.rectTop-2,width:RECT_W+4,height:RECT_H+4,rx:12,fill:'none',stroke:'#3ddc84','stroke-width':2}));
+          g.appendChild(mel('circle',{cx:n.rectX+2,cy:n.rectTop-2,r:10,fill:'#3ddc84'}));
+          const pbt=mel('text',{x:n.rectX+2,y:n.rectTop+2,'text-anchor':'middle',fill:'#04220f','font-size':11,'font-weight':700,'font-family':'system-ui,sans-serif'});
+          pbt.textContent=String(pick.rank);
+          g.appendChild(pbt);
+        }
+        cardRect.style.cursor='pointer';
+        cardRect.addEventListener('mouseenter',evt=>{
+          let body;
+          if(n.idx===leadMi){
+            const leadSpe=effSpeed(mineTeam[leadMi]);
+            body='🎯 Lead (#1) — beste aanval-risico-verhouding van je drietal'+(leadSpe!=null?' (Spe '+leadSpe+')':'')+'.';
+            if(atRiskEnemies.length)body+='<br><span style="color:var(--warn)">☠ Risico tegen: '+atRiskEnemies.map(e=>e.name).join(', ')+' — zie de switch-waarschuwing hierboven.</span>';
+          }else if(pick){
+            const bestOffHere=e=>Math.max(...best.combo.map(mi=>realMatrix[mi][e.idx].offW));
+            const strongVs=enemyFilled.filter(e=>{const w=realMatrix[n.idx][e.idx].offW;return w>=1&&w>=bestOffHere(e);}).map(e=>e.name);
+            body='✓ Drietal (#'+pick.rank+')'+(strongVs.length?' — beste aanval tegen: '+strongVs.join(', ')+'.':'.');
+          }else{
+            body='Niet in het drietal deze wedstrijd.';
+          }
+          showTip(evt,'<b>'+n.name+'</b><br>'+body);
+        });
+        cardRect.addEventListener('mousemove',moveTip);
+        cardRect.addEventListener('mouseleave',hideTip);
+      }
+      nodesLayer.appendChild(g);
+      nodes[key].g=g;
+    });
+
+    const enemyScore={};
+    enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
+    const enemyPicks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length)).map(e=>e.idx);
+
+    function bezier(a,b){
+      const na=nodes[a],nb=nodes[b];
+      const midX=(na.lineX+nb.lineX)/2;
+      return 'M'+na.lineX+','+na.y+' C '+midX+','+na.y+' '+midX+','+nb.y+' '+nb.lineX+','+nb.y;
+    }
+    function draw(mode){
+      linesLayer.innerHTML='';hitLayer.innerHTML='';
+      mineFilled.forEach(m=>{
+        enemyFilled.forEach(e=>{
+          const rc=realMatrix[m.idx][e.idx],dead=guaranteedDeath(m.idx,e);
+          let tier=null,info='';
+          if(mode==='mine'){
+            if(dead){tier='danger';info='☠ Gegarandeerde KO-dreiging — '+e.name+' kan '+m.name+' vrijwel zeker uitschakelen.';}
+            else if(rc.offW>=2){tier='strong';info=m.name+' heeft een sterk voordeel op '+e.name+'.';}
+            else if(rc.offW===1){tier='moderate';info=m.name+' heeft een licht voordeel op '+e.name+'.';}
+          }else{
+            if(dead){tier='strong';info='☠ '+e.name+' heeft een gegarandeerde KO-dreiging tegen '+m.name+'.';}
+            else if(rc.defW===2){tier='moderate';info=e.name+' doet stevige schade aan '+m.name+'.';}
+          }
+          if(!tier)return;
+          const st=TIER[tier],d=bezier('L'+m.idx,'R'+e.idx);
+          const p=mel('path',{d,fill:'none',stroke:st.stroke,'stroke-width':st.width,'stroke-dasharray':st.dash,opacity:st.opacity,'stroke-linecap':'round'});
+          linesLayer.appendChild(p);
+          const hit=mel('path',{d,fill:'none',stroke:'#000','stroke-width':16,opacity:0,style:'pointer-events:stroke;cursor:pointer'});
+          hit.addEventListener('mouseenter',evt=>{p.setAttribute('stroke-width',st.width+1.5);showTip(evt,'<b>'+m.name+' ↔ '+e.name+'</b><br>'+info);});
+          hit.addEventListener('mousemove',moveTip);
+          hit.addEventListener('mouseleave',()=>{p.setAttribute('stroke-width',st.width);hideTip();});
+          hitLayer.appendChild(hit);
+        });
+      });
+      Object.keys(nodes).forEach(key=>{
+        const n=nodes[key];
+        const oldRing=n.g.querySelector('.mwxEnemyRing'),oldBadge=n.g.querySelector('.mwxEnemyBadge');
+        if(oldRing)oldRing.remove();
+        if(oldBadge)oldBadge.remove();
+        n.g.onmouseenter=null;n.g.onmousemove=null;n.g.onmouseleave=null;n.g.style.cursor='';
+        if(mode==='enemy'&&n.side==='R'){
+          const rank=enemyPicks.indexOf(n.idx);
+          if(rank!==-1){
+            const ring=mel('rect',{x:n.rectX-2,y:n.rectTop-2,width:RECT_W+4,height:RECT_H+4,rx:12,fill:'none',stroke:'#f7b23b','stroke-width':2,class:'mwxEnemyRing'});
+            n.g.appendChild(ring);
+            const bg=mel('g',{class:'mwxEnemyBadge'});
+            bg.appendChild(mel('circle',{cx:n.rectX+RECT_W-2,cy:n.rectTop-2,r:10,fill:'#f7b23b'}));
+            const bt=mel('text',{x:n.rectX+RECT_W-2,y:n.rectTop+2,'text-anchor':'middle',fill:'#412402','font-size':11,'font-weight':700,'font-family':'system-ui,sans-serif'});
+            bt.textContent=String(rank+1);
+            bg.appendChild(bt);
+            n.g.appendChild(bg);
+            n.g.style.cursor='pointer';
+            n.g.onmouseenter=evt=>showTip(evt,'<b>'+n.name+' — waarschijnlijke keuze (#'+(rank+1)+')</b><br>Hoogste coverage-score tegen jouw team (Σ = '+enemyScore[n.idx]+'). Een aanname op basis van coverage, geen garantie voor zijn daadwerkelijke keuze.');
+            n.g.onmousemove=moveTip;
+            n.g.onmouseleave=hideTip;
+          }
+        }
+      });
+      cap.textContent=mode==='mine'
+        ? 'Groene lijn = jouw voordeel, rode stippellijn = gevaar voor jou. Alleen duidelijke signalen worden getoond.'
+        : 'Zelfde data, omgekeerd: dikke lijnen tonen zijn beste coverage tegen jouw team. ①②③ = zijn waarschijnlijke laatste 3 (coverage-som, geen garantie).';
+      hideTip();
+    }
+    const btnMine=document.getElementById('mwxModeMine'),btnEnemy=document.getElementById('mwxModeEnemy');
+    if(btnMine&&btnEnemy){
+      btnMine.onclick=()=>{btnMine.setAttribute('aria-pressed','true');btnEnemy.setAttribute('aria-pressed','false');draw('mine');};
+      btnEnemy.onclick=()=>{btnMine.setAttribute('aria-pressed','false');btnEnemy.setAttribute('aria-pressed','true');draw('enemy');};
+    }
+    draw('mine');
+  }
+
   /* Sprite-chips i.p.v. lopende tekst in de waarschuwingen — sneller te scannen mid-game.
      Sprite wordt async na-geladen (zelfde patroon als de damage-%-regels hieronder). */
   const spriteChipTasks=[];
@@ -3067,6 +3287,21 @@ async function computeAdvice(){
   }
   let html='';
   html+=teamPreviewHTML(mineFilled,enemyFilled,matrix);
+  /* Matchup web: visuele lijnenweb-versie van dezelfde realMatrix die de trio-score en
+     bestAnswer() al gebruiken — geen nieuwe beslislogica, alleen een andere weergave. Standaard
+     dichtgeklapt (net als Team preview/coverage-suggesties hierboven) zodat het advies zelf niet
+     verdrinkt; de knoppen/SVG worden na out.innerHTML hieronder gevuld door renderMatchupWeb(). */
+  html+='<details class="logDetails" style="margin-bottom:14px"><summary class="label" style="cursor:pointer;margin:0 0 4px"><span class="chev">▸</span><span>Matchup web</span><span class="rule"></span></summary>'
+    +'<div class="mwxSeg" role="group"><button type="button" id="mwxModeMine" aria-pressed="true">Mijn team</button><button type="button" id="mwxModeEnemy" aria-pressed="false">Enemy perspective</button></div>'
+    +'<div class="mwxCap" id="mwxCap"></div>'
+    +'<div class="mwxPanel"><svg id="mwxSvg" width="100%" role="img" aria-label="Matchup-lijnenweb tussen jouw team en de tegenstander"></svg><div class="mwxTip" id="mwxTip"></div></div>'
+    +'<div class="mwxLegend">'
+    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#3ddc84" stroke-width="3.5" stroke-linecap="round"/></svg>Sterk voordeel</span>'
+    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#1c8a4f" stroke-width="1.75" stroke-linecap="round"/></svg>Licht voordeel</span>'
+    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>'
+    +'<span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>'
+    +'<span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 (Enemy perspective)</span>'
+    +'</div></details>';
   html+=winConditionHTML(mineFilled.filter(m=>best.combo.includes(m.idx)),enemyFilled);
   html+='<div class="advCard pick"><div class="advHead">Aanbevolen 3<span class="score">score '+best.score.toFixed(1)+'</span></div>';
   const orderedCombo=[leadMi,...best.combo.filter(mi=>mi!==leadMi)];
@@ -3097,13 +3332,25 @@ async function computeAdvice(){
      klap gegarandeerd) — tenzij de dreigende tegenstander een multi-hit-move draagt, want
      die breekt zo'n schild alsnog. */
   const leadStructRisk=structuralQuadRisk(mineTeam[leadMi]);
+  /* Zelfde contingency-waarschuwing, maar nu ook getriggerd door een reëel gegarandeerde-KO-
+     risico (realQuadRiskDetail) i.p.v. alleen een type-4x-zwakte — dekt precies het Mimikyu/
+     Mamoswine-geval: geen 4x-zwakte volgens de typetabel, wél een gegarandeerde KO zodra
+     Icicle Spear's multi-hit Disguise breekt. Geen aparte plausibiliteits-toets nodig voor
+     deze categorie: realMatrix is al enemy-specifiek (gebruikt zijn eigen bevestigde/live
+     moves), dus elke hit hier is per definitie al relevant voor déze tegenstander. */
+  const leadRealRisk=realQuadRiskDetail(leadMi);
+  let atRiskEnemies=[];
   if(leadStructRisk.length){
     const leadProtected=mineTeam[leadMi].item==='Focus Sash'||['Sturdy','Disguise'].includes(mineTeam[leadMi].ability);
-    let atRiskEnemies=enemyFilled.filter(e=>{
+    let typeRiskEnemies=enemyFilled.filter(e=>{
       const plausible=plausibleEnemyTypes(e);
       return leadStructRisk.some(t=>plausible.has(t));
     });
-    if(leadProtected)atRiskEnemies=atRiskEnemies.filter(e=>hasMultiHitMove(e.slot));
+    if(leadProtected)typeRiskEnemies=typeRiskEnemies.filter(e=>hasMultiHitMove(e.slot));
+    atRiskEnemies=atRiskEnemies.concat(typeRiskEnemies);
+  }
+  leadRealRisk.forEach(e=>{if(!atRiskEnemies.includes(e))atRiskEnemies.push(e);});
+  if(atRiskEnemies.length){
     const leadContingencies=atRiskEnemies.map(e=>({e,answer:bestAnswer(e)})).filter(({answer})=>answer.mi!==leadMi);
     if(leadContingencies.length){
       const groups=new Map();
@@ -3111,9 +3358,15 @@ async function computeAdvice(){
         if(!groups.has(answer.mi))groups.set(answer.mi,[]);
         groups.get(answer.mi).push(e);
       });
-      const typeBadges=leadStructRisk.map(t=>'<span class="typebadge" style="background:'+COLOR[t]+';color:'+ink(COLOR[t])+';font-size:9px;padding:2px 6px">'+t+'</span>').join('');
+      let riskLabel;
+      if(leadStructRisk.length){
+        const typeBadges=leadStructRisk.map(t=>'<span class="typebadge" style="background:'+COLOR[t]+';color:'+ink(COLOR[t])+';font-size:9px;padding:2px 6px">'+t+'</span>').join('');
+        riskLabel='4× zwak tegen '+typeBadges+(leadRealRisk.length?', en gegarandeerd KO-risico tegen '+leadRealRisk.map(e=>spriteChip(e.name)).join(', '):'');
+      }else{
+        riskLabel='gegarandeerd KO-risico tegen '+leadRealRisk.map(e=>spriteChip(e.name)).join(', ')+' (bijv. via een multi-hit-move die een schild breekt)';
+      }
       const parts=[...groups.entries()].map(([mi,enemies])=>'als '+enemies.map(e=>spriteChip(e.name)).join(' of ')+' opent → switch naar '+spriteChip(nameFor(mi)));
-      html+='<div class="advWarn">☠ Lead '+spriteChip(nameFor(leadMi))+' 4× zwak tegen '+typeBadges+' — '+parts.join('; ')+'.</div>';
+      html+='<div class="advWarn">☠ Lead '+spriteChip(nameFor(leadMi))+' '+riskLabel+' — '+parts.join('; ')+'.</div>';
     }
   }
   /* "Tegenstander opent met"-kiezer: op het moment dat beide leads zichtbaar worden en zijn
@@ -3205,6 +3458,7 @@ async function computeAdvice(){
 
   if(myGen!==adviceGen)return;
   out.innerHTML=html;
+  renderMatchupWeb();
 
   /* DAMAGE ENGINE V2: async na-vullen. Elke computeAdvice()-aanroep bouwt de hele
      out.innerHTML opnieuw op, dus een trage/oude fetch die later binnenkomt vindt zijn

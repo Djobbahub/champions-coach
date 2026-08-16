@@ -2944,7 +2944,7 @@ function clearMatchupWeb(msg){
   const svg=document.getElementById('mwxSvg'),cap=document.getElementById('mwxCap');
   if(svg)svg.innerHTML='';
   if(cap)cap.textContent=msg;
-  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge').forEach(b=>b.remove());
+  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge,.mwxEnemyLeadBadge,.mwxEnemyLead2Badge').forEach(b=>b.remove());
 }
 function scheduleMwxRedraw(){
   if(mwxRAF)return;
@@ -2954,7 +2954,7 @@ function renderMatchupOverlay(){
   const svg=document.getElementById('mwxSvg'),cap=document.getElementById('mwxCap'),tip=document.getElementById('mwxTip');
   const grid=document.getElementById('teamGrid');
   if(!svg||!cap||!tip||!grid)return;
-  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge').forEach(b=>b.remove());
+  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge,.mwxEnemyLeadBadge,.mwxEnemyLead2Badge').forEach(b=>b.remove());
   if(!grid.classList.contains('desktop')){
     svg.innerHTML='';
     cap.textContent='Schakel naar 🖥️ Desktop-layout (bovenaan) om de matchup web tussen je invulvelden te zien.';

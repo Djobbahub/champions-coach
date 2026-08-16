@@ -1,4 +1,4 @@
-const CACHE='champions-coach-v42';
+const CACHE='champions-coach-v43';
 const SHELL=['./index.html','./manifest.json','./icon.svg'];
 
 self.addEventListener('install',e=>{

@@ -3142,14 +3142,17 @@ function renderMatchupOverlay(){
     er.el.onmouseenter=null;er.el.onmousemove=null;er.el.onmouseleave=null;
     const specs=[];
     const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
-    if(leadRank===0)specs.push({kind:'lead1',lead:predictedLeads[0]});
-    else if(leadRank===1)specs.push({kind:'lead2',lead:predictedLeads[1]});
-    /* Alleen de drietal-rang tonen als er nog GEEN lead-badge staat — een kaart met zowel
-       "LEAD" als een los rangnummer eronder oogt als 2 losse, verwarrende claims i.p.v. 1
-       duidelijke. De lead-voorspelling is de sterkere/specifiekere claim, die wint. */
-    if(!specs.length){
-      const trioRank=picks.findIndex(p=>p.idx===e.idx);
-      if(trioRank!==-1)specs.push({kind:'trio',rank:trioRank+1});
+    const trioRank=picks.findIndex(p=>p.idx===e.idx);
+    /* Rang ① wordt nooit getoond — "LEAD" is al de sterkere, specifiekere claim voor de
+       belangrijkste voorspelling, een los "1"-rondje ernaast (of in plaats daarvan) voegt
+       niets toe. "LEAD" (predictedLeads[0]) staat daarom altijd alleen, nooit gecombineerd
+       met een rangnummer. "2e lead" (predictedLeads[1]) is een aparte, zwakkere claim en mag
+       wél samen met rang ② of ③ verschijnen als die toevallig op dezelfde tegenstander vallen. */
+    if(leadRank===0){
+      specs.push({kind:'lead1',lead:predictedLeads[0]});
+    }else{
+      if(leadRank===1)specs.push({kind:'lead2',lead:predictedLeads[1]});
+      if(trioRank===1||trioRank===2)specs.push({kind:'trio',rank:trioRank+1});
     }
     if(!specs.length)return;
     const els=specs.map(spec=>{

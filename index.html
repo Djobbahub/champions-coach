@@ -339,7 +339,19 @@
     </div>
   </div>
 
-  <div class="label"><span>Advies</span><span class="rule"></span></div>
+  <div class="label"><span>Matchup web</span><span class="rule"></span></div>
+  <div class="mwxSeg" role="group"><button type="button" id="mwxModeMine" aria-pressed="true">Mijn team</button><button type="button" id="mwxModeEnemy" aria-pressed="false">Enemy perspective</button></div>
+  <div class="mwxCap" id="mwxCap">Vul Pokémon in bij Mijn team en Tegenstander om de matchup web te zien.</div>
+  <div class="mwxPanel"><svg id="mwxSvg" width="100%" role="img" aria-label="Matchup-lijnenweb tussen jouw team en de tegenstander"></svg><div class="mwxTip" id="mwxTip"></div></div>
+  <div class="mwxLegend">
+    <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#3ddc84" stroke-width="3.5" stroke-linecap="round"/></svg>Sterk voordeel</span>
+    <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#1c8a4f" stroke-width="1.75" stroke-linecap="round"/></svg>Licht voordeel</span>
+    <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>
+    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>
+    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 (Enemy perspective)</span>
+  </div>
+
+  <div class="label" style="margin-top:22px"><span>Advies</span><span class="rule"></span></div>
   <div id="teamAdvice"></div>
 
   <details class="logDetails" style="margin-top:22px">
@@ -2853,15 +2865,29 @@ function teamPreviewHTML(mineFilled,enemyFilled,matrix){
   return html;
 }
 
+/* Matchup web zit als STATISCE sectie direct onder de 12 invulvelden (#teamGrid), niet in de
+   dynamisch opgebouwde Advies-html — anders bestaat 'm pas zodra computeAdvice voorbij de
+   3-mine/1-vijand-drempel komt, en is 'm onvindbaar/lijkt afwezig zolang je nog aan het
+   invullen bent. clearMatchupWeb() zet 'm in een duidelijke wacht-status i.p.v. hem leeg/
+   verward achter te laten wanneer er nog te weinig is ingevuld. */
+function clearMatchupWeb(msg){
+  const svg=document.getElementById('mwxSvg'),cap=document.getElementById('mwxCap');
+  const btnMine=document.getElementById('mwxModeMine'),btnEnemy=document.getElementById('mwxModeEnemy');
+  if(svg)svg.innerHTML='';
+  if(cap)cap.textContent=msg;
+  if(btnMine){btnMine.onclick=null;btnMine.setAttribute('aria-pressed','true');}
+  if(btnEnemy){btnEnemy.onclick=null;btnEnemy.setAttribute('aria-pressed','false');}
+}
 async function computeAdvice(){
   const myGen=++adviceGen;
   const out=document.getElementById('teamAdvice');
   if(!out)return;
   const mineFilled=[];mineTeam.forEach((s,i)=>{const t=slotTypes(s);if(t)mineFilled.push({idx:i,slot:s,types:t,name:s.name.trim()||('Mijn #'+(i+1))});});
   const enemyFilled=[];enemyTeam.forEach((s,j)=>{const t=slotTypes(s);if(t)enemyFilled.push({idx:j,slot:s,types:t,name:s.name.trim()||('Vijand #'+(j+1))});});
-  if(!mineFilled.length){out.innerHTML='<div class="teamAdviceEmpty">Vul minstens <b>1 Pokémon</b> in bij <b>Mijn team</b> om de team-coverage te zien; vul ook de <b>tegenstander</b> in voor concreet matchup-advies.</div>';return;}
+  if(!mineFilled.length){out.innerHTML='<div class="teamAdviceEmpty">Vul minstens <b>1 Pokémon</b> in bij <b>Mijn team</b> om de team-coverage te zien; vul ook de <b>tegenstander</b> in voor concreet matchup-advies.</div>';clearMatchupWeb('Vul Pokémon in bij Mijn team en Tegenstander om de matchup web te zien.');return;}
   if(mineFilled.length<3||enemyFilled.length===0){
     out.innerHTML=coverageMapHTML(mineFilled)+'<div class="teamAdviceEmpty" style="margin-top:18px">Vul minstens <b>3 Pokémon</b> in bij <b>Mijn team</b> en minstens <b>1</b> bij de <b>tegenstander</b> voor concreet matchup-advies.</div>';
+    clearMatchupWeb('Vul minstens 3 Pokémon bij Mijn team en 1 bij de tegenstander in om de matchup web te zien.');
     return;
   }
 
@@ -3287,21 +3313,6 @@ async function computeAdvice(){
   }
   let html='';
   html+=teamPreviewHTML(mineFilled,enemyFilled,matrix);
-  /* Matchup web: visuele lijnenweb-versie van dezelfde realMatrix die de trio-score en
-     bestAnswer() al gebruiken — geen nieuwe beslislogica, alleen een andere weergave. Standaard
-     dichtgeklapt (net als Team preview/coverage-suggesties hierboven) zodat het advies zelf niet
-     verdrinkt; de knoppen/SVG worden na out.innerHTML hieronder gevuld door renderMatchupWeb(). */
-  html+='<details class="logDetails" style="margin-bottom:14px"><summary class="label" style="cursor:pointer;margin:0 0 4px"><span class="chev">▸</span><span>Matchup web</span><span class="rule"></span></summary>'
-    +'<div class="mwxSeg" role="group"><button type="button" id="mwxModeMine" aria-pressed="true">Mijn team</button><button type="button" id="mwxModeEnemy" aria-pressed="false">Enemy perspective</button></div>'
-    +'<div class="mwxCap" id="mwxCap"></div>'
-    +'<div class="mwxPanel"><svg id="mwxSvg" width="100%" role="img" aria-label="Matchup-lijnenweb tussen jouw team en de tegenstander"></svg><div class="mwxTip" id="mwxTip"></div></div>'
-    +'<div class="mwxLegend">'
-    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#3ddc84" stroke-width="3.5" stroke-linecap="round"/></svg>Sterk voordeel</span>'
-    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#1c8a4f" stroke-width="1.75" stroke-linecap="round"/></svg>Licht voordeel</span>'
-    +'<span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>'
-    +'<span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>'
-    +'<span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 (Enemy perspective)</span>'
-    +'</div></details>';
   html+=winConditionHTML(mineFilled.filter(m=>best.combo.includes(m.idx)),enemyFilled);
   html+='<div class="advCard pick"><div class="advHead">Aanbevolen 3<span class="score">score '+best.score.toFixed(1)+'</span></div>';
   const orderedCombo=[leadMi,...best.combo.filter(mi=>mi!==leadMi)];

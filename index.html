@@ -264,6 +264,10 @@
   @keyframes mwxShine{0%{background-position:-150% 0;}55%{background-position:180% 0;}100%{background-position:180% 0;}}
   @media (prefers-reduced-motion: reduce){.mwxLeadBadge::after{animation:none;}}
   .mwxTrioBadge{position:absolute;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:50%;background:var(--good);color:#04220f;font-family:'Oswald';font-weight:700;font-size:16px;box-shadow:0 4px 10px rgba(0,0,0,.45),0 0 0 2px var(--panel);z-index:4;}
+  .mwxEnemyLeadBadge{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:50px;padding:6px 2px;border-radius:13px;background:linear-gradient(160deg,#ffcf7a,#f7b23b);box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 0 2px var(--panel);z-index:4;text-align:center;}
+  .mwxEnemyLeadBadge .ic{font-size:15px;line-height:1.1;}
+  .mwxEnemyLeadBadge .lbl{font-family:'Oswald';font-weight:700;font-size:8.5px;letter-spacing:.05em;color:#2a1a00;line-height:1.15;}
+  .mwxEnemyLead2Badge{position:absolute;display:flex;align-items:center;justify-content:center;gap:3px;height:22px;padding:0 8px;border-radius:11px;background:rgba(247,178,59,.85);box-shadow:0 3px 8px rgba(0,0,0,.4),0 0 0 2px var(--panel);z-index:4;font-family:'Oswald';font-weight:700;font-size:10px;color:#2a1a00;white-space:nowrap;}
   .mwxLegend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 2px 12px;font-size:11px;color:var(--muted);align-items:center;}
   .mwxLegend .sw{display:inline-flex;align-items:center;gap:6px;}
   .mwxLegend svg{display:block;}
@@ -368,7 +372,7 @@
     <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#1c8a4f" stroke-width="1.75" stroke-linecap="round"/></svg>Licht voordeel</span>
     <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>
     <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>
-    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 — klik hierboven op "Enemy perspective" om ze te zien</span>
+    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 / lead</span>
   </div>
 
   <div class="label" style="margin-top:22px"><span>Advies</span><span class="rule"></span></div>
@@ -2957,7 +2961,7 @@ function renderMatchupOverlay(){
     return;
   }
   if(!mwxData){svg.innerHTML='';return;}
-  const{mineFilled,enemyFilled,realMatrix,combo,leadMi,atRiskEnemies,pts}=mwxData;
+  const{mineFilled,enemyFilled,realMatrix,combo,leadMi,atRiskEnemies,pts,predictedLeads}=mwxData;
   const gridRect=grid.getBoundingClientRect();
   svg.setAttribute('width',gridRect.width);
   svg.setAttribute('height',gridRect.height);
@@ -3073,19 +3077,11 @@ function renderMatchupOverlay(){
   });
 
   /* Badges staan in de gereserveerde 60px-marge LINKS van #mineSlots (rank/lead) resp. RECHTS
-     van #theirsSlots (voorspelde 3) — dus altijd naast, nooit over een kaartrand heen, zodat
-     ze niet meer per ongeluk bij het VERKEERDE (aangrenzende) teamlid lijken te horen. Verticaal
-     gecentreerd op de kaart die ze horen; voor de vaste-grootte cirkel-badges is de hoogte al
-     bekend, voor de lead-badge (variabele hoogte door de tekst) meten we 'm na het invoegen. */
-  function addBadge(rect,rank,cls){
-    const b=document.createElement('span');
-    b.className='mwxBadge '+cls;
-    b.style.left=(rect.right+6)+'px';
-    b.style.top=(rect.top+(rect.bottom-rect.top)/2-10)+'px';
-    b.textContent=String(rank);
-    grid.appendChild(b);
-    return b;
-  }
+     van #theirsSlots (waarschijnlijke 3/lead) — dus altijd naast, nooit over een kaartrand
+     heen, zodat ze niet meer per ongeluk bij het VERKEERDE (aangrenzende) teamlid lijken te
+     horen. Verticaal gecentreerd op de kaart die ze horen; hoogte gemeten na het invoegen
+     (voor badges met variabele hoogte door de tekst), zodat een stapel van meerdere badges
+     bij hetzelfde teamlid altijd als groep netjes gecentreerd staat. */
 
   const others=combo.filter(mi=>mi!==leadMi).sort((a,b)=>pts[b].net-pts[a].net);
   const myRank={};myRank[leadMi]=1;others.forEach((mi,i)=>{myRank[mi]=i+2;});
@@ -3129,27 +3125,65 @@ function renderMatchupOverlay(){
     mr.el.onmouseleave=hideTip;
   });
 
-  if(mwxMode==='enemy'){
-    const enemyScore={};
-    enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
-    const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
-    picks.forEach((e,i)=>{
-      const er=enemyRects[e.idx];if(!er)return;
-      const badge=addBadge(er,i+1,'enemy');
-      badge.style.pointerEvents='auto';
-      badge.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke keuze (#'+(i+1)+')</b><br>Hoogste coverage-score tegen jouw team (Σ = '+enemyScore[e.idx]+'). Een aanname, geen garantie voor zijn daadwerkelijke keuze.');
-      badge.onmousemove=moveTip;
-      badge.onmouseleave=hideTip;
-    });
+  /* Zijn waarschijnlijke 3 (coverage-som) én zijn waarschijnlijke lead(s) (predictLeads —
+     dezelfde historie/live-Lead-Rate/hazard-voorspelling als het 🎯-badge in het invulveld
+     zelf) staan nu ALTIJD, ook buiten Enemy perspective — dat was verwarrend verstopt achter
+     de toggle. Lead-badge #2 kan op een andere Pokémon staan dan de coverage-top-3; dat is
+     bedoeld, het zijn twee onafhankelijke voorspellingen (coverage vs. historische lead-kans)
+     die toevallig kunnen overlappen maar niet hoeven. */
+  function leadLabel(lead){
+    return lead.source==='history'?Math.round(lead.ratio*100)+'% Lead':lead.source==='global'?lead.leadRate+'% Lead':'Mogelijke lead';
   }
+  const enemyScore={};
+  enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
+  const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
   enemyFilled.forEach(e=>{
     const er=enemyRects[e.idx];if(!er)return;
     er.el.onmouseenter=null;er.el.onmousemove=null;er.el.onmouseleave=null;
+    const specs=[];
+    const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
+    if(leadRank===0)specs.push({kind:'lead1',lead:predictedLeads[0]});
+    else if(leadRank===1)specs.push({kind:'lead2',lead:predictedLeads[1]});
+    const trioRank=picks.findIndex(p=>p.idx===e.idx);
+    if(trioRank!==-1)specs.push({kind:'trio',rank:trioRank+1});
+    if(!specs.length)return;
+    const els=specs.map(spec=>{
+      if(spec.kind==='lead1'){
+        const b=document.createElement('div');
+        b.className='mwxEnemyLeadBadge';
+        b.innerHTML='<span class="ic">🎯</span><span class="lbl">LEAD</span>';
+        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke lead</b><br>'+leadLabel(spec.lead)+' (bron: '+(spec.lead.source==='history'?'jouw eigen geschiedenis':spec.lead.source==='global'?'live Lead Rate':'hazard-patroon, geen harde voorspelling')+').');
+        return b;
+      }
+      if(spec.kind==='lead2'){
+        const b=document.createElement('div');
+        b.className='mwxEnemyLead2Badge';
+        b.textContent='🎯 2e lead';
+        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — op-één-na waarschijnlijkste lead</b><br>'+leadLabel(spec.lead)+'.');
+        return b;
+      }
+      const b=document.createElement('span');
+      b.className='mwxBadge enemy';
+      b.textContent=String(spec.rank);
+      b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke keuze (#'+spec.rank+')</b><br>Hoogste coverage-score tegen jouw team (Σ = '+enemyScore[e.idx]+'). Een aanname, geen garantie voor zijn daadwerkelijke keuze.');
+      return b;
+    });
+    const midY=er.top+(er.bottom-er.top)/2;
+    els.forEach(el=>{
+      el.style.left=(er.right+6)+'px';
+      el.style.visibility='hidden';
+      el.style.pointerEvents='auto';
+      el.onmousemove=moveTip;el.onmouseleave=hideTip;
+      grid.appendChild(el);
+    });
+    const totalH=els.reduce((s,el)=>s+el.offsetHeight,0)+(els.length-1)*4;
+    let y=midY-totalH/2;
+    els.forEach(el=>{el.style.top=y+'px';el.style.visibility='visible';y+=el.offsetHeight+4;});
   });
 
   cap.textContent=(mwxMode==='mine'
     ? 'Groene lijn = jouw voordeel, rode stippellijn = gevaar voor jou.'
-    : 'Zelfde data, omgekeerd: dikke lijnen tonen zijn beste coverage tegen jouw team. ①②③ = zijn waarschijnlijke laatste 3 (coverage-som, geen garantie).')
+    : 'Zelfde data, omgekeerd: dikke lijnen tonen zijn beste coverage tegen jouw team.')
     +(mwxShowLight?'':' Lichte voordelen zijn verborgen.');
   hideTip();
 }
@@ -3556,7 +3590,7 @@ async function computeAdvice(){
 
   if(myGen!==adviceGen)return;
   out.innerHTML=html;
-  mwxData={mineFilled,enemyFilled,realMatrix,combo:best.combo,leadMi,atRiskEnemies,pts};
+  mwxData={mineFilled,enemyFilled,realMatrix,combo:best.combo,leadMi,atRiskEnemies,pts,predictedLeads};
   renderMatchupOverlay();
 
   /* DAMAGE ENGINE V2: async na-vullen. Elke computeAdvice()-aanroep bouwt de hele

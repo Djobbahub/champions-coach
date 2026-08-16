@@ -3005,21 +3005,27 @@ async function computeAdvice(){
          zijn (jouw stats + speed-tabel). */
       const edge=speedEdge(mineTeam[mi],e.slot);
       const speedRiskMult=edge==='slower'?1.5:(edge==='unsure'?1.15:1);
-      /* Een 2x-hit van een Pokémon met écht hoge Attack/SpA (zoals jij zelf hebt ingevuld)
-         doet in de praktijk veel meer schade dan een 2x-hit van een zwakke aanvaller — de
-         kale type-multiplier alleen maakte daar voorheen geen onderscheid in. Zelfde principe
-         aan de verdedigende kant: zijn (geschatte) echte power weegt mee, niet alleen zijn type. */
       const myPower=offPower(mineTeam[mi]);
       const theirPower=enemyOffFactor(e.slot);
-      /* Disguise/Sturdy/Focus Sash claimt "overleeft de eerste klap gegarandeerd" — maar een
-         multi-hit-move van de tegenstander breekt dat schild binnen dezelfde beurt, waarna de
-         resterende klappen gewoon vol doorkomen. Zo'n keuze oogde daardoor veiliger dan hij
-         was (ontdekt via een echt verloren potje: Mimikyu tegen Mamoswine's Icicle Spear —
-         de waarschuwingstekst bestond al, maar de score zelf werd er niet minder aantrekkelijk
-         van). Zelfde grootte als structPenalty voor consistentie. */
+      /* ECHTE %-schade (Damage Engine) i.p.v. de kale type-multiplier — zelfde migratie als
+         eerder bij de trio-score, nu ook hier: 'c' blijft bestaan voor de tie-break en voor
+         downstream-gebruik (cell, 4x-badges, matchupVerdict), maar de SCORE zelf leunt op
+         realMatrix, dat al de OHKO-tier (defW===3, min-roll ≥100%) en schild-fallback heeft.
+
+         Wisselen negeert snelheid: de tegenstander die al staat, valt sowieso aan vóórdat mijn
+         net-ingewisselde Pokémon iets kan doen — hoe snel hij ook is. Een gegarandeerde OHKO
+         op de inkomende klap betekent dus dat de eigen aanvalswaarde van dit teamlid vrijwel
+         nooit gebruikt wordt, en telt daarom NIET mee (dode Pokémon doen geen schade). Shields
+         (Disguise/Sturdy/Focus Sash) blokkeren die eerste klap wél — tenzij de tegenstander een
+         multi-hit-move draagt die het schild binnen dezelfde beurt breekt (zelfde principe als
+         de eerdere Mamoswine-fix). Ontdekt via een echt verloren potje: Garchomp inwisselen
+         tegen Dragonite leek qua snelheid veilig, maar stierf gegarandeerd aan Draco Meteor/
+         Outrage vóórdat hij zijn eigen Dragon Claw ooit kon gebruiken. */
+      const rc=realMatrix[mi][e.idx];
       const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
-      const multihitPenalty=shieldReliant&&hasMultiHitMove(e.slot)?1.5:0;
-      const s=(c.off||0)*myPower-(c.def||0)*theirPower*speedRiskMult-structPenalty-multihitPenalty;
+      const facesGuaranteedDeath=rc.defW===3&&(!shieldReliant||hasMultiHitMove(e.slot));
+      const offScore=facesGuaranteedDeath?0:rc.offW*myPower;
+      const s=offScore-rc.defW*theirPower*speedRiskMult-structPenalty;
       if(s>bestScore+1e-9){bestScore=s;bestMi=mi;}
       else if(Math.abs(s-bestScore)<1e-9){
         /* Echte gelijke stand (zelfde risico-verhouding, bv. 2x raken/2x nemen vs 1x/1x):

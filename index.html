@@ -3128,10 +3128,21 @@ async function computeAdvice(){
        negeert dat een ANDER trio-lid dit gevecht soms al in 1 klap beslist vóórdat de
        tegenaanval ertoe doet. Alleen tonen als dat lid ook echt eerst slaat (speedEdge===
        'faster', geen giswerk op 'unsure') en de echte schade (Damage Engine, geen heuristiek)
-       serieus is — anders is "hoeft niet te wisselen" een loze/onveilige belofte. */
+       serieus is — anders is "hoeft niet te wisselen" een loze/onveilige belofte.
+
+       Maar 'sneller' redt niet als dit lid ZELF ook pas moet inwisselen — de app weet niet of
+       het al actief staat, dus mag daar niet blind van uitgaan (zelfde inzicht als de
+       bestAnswer-fix: wisselen negeert snelheid, de tegenstander die al staat valt sowieso
+       aan). Daarom ook hier de gegarandeerde-dood-check: als dit lid zelf een bevestigde OHKO
+       tegemoet gaat op de inkomende klap, is "hoeft niet te wisselen" een onveilige belofte,
+       ongeacht hoe hard het zelf terugslaat. */
     const altIds=[];
     best.combo.filter(mi=>mi!==a.mi).forEach(mi=>{
       if(speedEdge(mineTeam[mi],e.slot)!=='faster')return;
+      const rc=realMatrix[mi][e.idx];
+      const shieldReliant=mineTeam[mi].ability==='Disguise'||mineTeam[mi].ability==='Sturdy'||mineTeam[mi].item==='Focus Sash';
+      const facesGuaranteedDeath=rc.defW===3&&(!shieldReliant||hasMultiHitMove(e.slot));
+      if(facesGuaranteedDeath)return;
       const altId='altPct-'+e.idx+'-'+mi;
       altIds.push(altId);
       altTasks.push({id:altId,mySlot:mineTeam[mi],mi,enemySlot:e.slot});

@@ -256,10 +256,10 @@
   #mwxSvg{position:absolute;top:0;left:0;pointer-events:none;z-index:2;}
   .mwxBadge{position:absolute;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Inter';font-weight:700;font-size:11px;z-index:3;box-shadow:0 0 0 2px var(--panel);pointer-events:none;}
   .mwxBadge.enemy{background:var(--warn);color:#2a1a00;}
-  .mwxLeadBadge{position:absolute;display:flex;align-items:center;gap:6px;height:32px;padding:0 14px 0 10px;border-radius:16px;background:linear-gradient(135deg,#5df1a0,#1c8a4f);box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 0 2px var(--panel);z-index:4;overflow:hidden;}
-  .mwxLeadBadge .crown{font-size:17px;line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));}
-  .mwxLeadBadge .num{font-family:'Oswald';font-weight:700;font-size:17px;color:#04220f;line-height:1;}
-  .mwxLeadBadge .lbl{font-family:'Oswald';font-weight:700;font-size:12px;letter-spacing:.12em;color:#04220f;line-height:1;}
+  .mwxLeadBadge{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:52px;padding:7px 2px;border-radius:14px;background:linear-gradient(160deg,#5df1a0,#1c8a4f);box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 0 2px var(--panel);z-index:4;overflow:hidden;text-align:center;}
+  .mwxLeadBadge .crown{font-size:17px;line-height:1.1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));}
+  .mwxLeadBadge .num{font-family:'Oswald';font-weight:700;font-size:16px;color:#04220f;line-height:1.1;}
+  .mwxLeadBadge .lbl{font-family:'Oswald';font-weight:700;font-size:9px;letter-spacing:.08em;color:#04220f;line-height:1.1;}
   .mwxLeadBadge::after{content:'';position:absolute;inset:0;background:linear-gradient(120deg,transparent 35%,rgba(255,255,255,.75) 50%,transparent 65%);background-size:250% 100%;background-position:-150% 0;animation:mwxShine 3.2s ease-in-out infinite;pointer-events:none;}
   @keyframes mwxShine{0%{background-position:-150% 0;}55%{background-position:180% 0;}100%{background-position:180% 0;}}
   @media (prefers-reduced-motion: reduce){.mwxLeadBadge::after{animation:none;}}
@@ -269,9 +269,9 @@
   .mwxLegend svg{display:block;}
   .mwxTip{position:absolute;pointer-events:none;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:12.5px;line-height:1.5;color:var(--txt);max-width:230px;display:none;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.4);}
   .mwxTip b{color:inherit;}
-  .teamGrid.desktop{grid-template-columns:minmax(0,300px) 1fr minmax(0,300px);gap:0;}
-  .teamGrid.desktop .teamCol:nth-child(1){grid-column:1;}
-  .teamGrid.desktop .teamCol:nth-child(2){grid-column:3;}
+  .teamGrid.desktop{grid-template-columns:60px minmax(0,300px) 1fr minmax(0,300px) 60px;gap:0;}
+  .teamGrid.desktop .teamCol:nth-child(1){grid-column:2;}
+  .teamGrid.desktop .teamCol:nth-child(2){grid-column:4;}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;}}
 </style>
 </head>
@@ -3028,11 +3028,16 @@ function renderMatchupOverlay(){
     });
   });
 
-  function addBadge(rect,onLeft,rank,cls){
+  /* Badges staan in de gereserveerde 60px-marge LINKS van #mineSlots (rank/lead) resp. RECHTS
+     van #theirsSlots (voorspelde 3) — dus altijd naast, nooit over een kaartrand heen, zodat
+     ze niet meer per ongeluk bij het VERKEERDE (aangrenzende) teamlid lijken te horen. Verticaal
+     gecentreerd op de kaart die ze horen; voor de vaste-grootte cirkel-badges is de hoogte al
+     bekend, voor de lead-badge (variabele hoogte door de tekst) meten we 'm na het invoegen. */
+  function addBadge(rect,rank,cls){
     const b=document.createElement('span');
     b.className='mwxBadge '+cls;
-    b.style.left=(onLeft?rect.left-10:rect.right-10)+'px';
-    b.style.top=(rect.top-10)+'px';
+    b.style.left=(rect.right+6)+'px';
+    b.style.top=(rect.top+(rect.bottom-rect.top)/2-10)+'px';
     b.textContent=String(rank);
     grid.appendChild(b);
     return b;
@@ -3043,19 +3048,22 @@ function renderMatchupOverlay(){
   mineFilled.forEach(m=>{
     const mr=mineRects[m.idx];if(!mr)return;
     const rank=myRank[m.idx];
+    const midY=mr.top+(mr.bottom-mr.top)/2;
     if(rank===1){
       const badge=document.createElement('div');
       badge.className='mwxLeadBadge';
       badge.innerHTML='<span class="crown">👑</span><span class="num">1</span><span class="lbl">LEAD</span>';
-      badge.style.left=(mr.left+6)+'px';
-      badge.style.top=(mr.top-26)+'px';
+      badge.style.left=(mr.left-58)+'px';
+      badge.style.visibility='hidden';
       grid.appendChild(badge);
+      badge.style.top=(midY-badge.offsetHeight/2)+'px';
+      badge.style.visibility='visible';
     }else if(rank){
       const badge=document.createElement('div');
       badge.className='mwxTrioBadge';
       badge.textContent=String(rank);
-      badge.style.left=(mr.left+6)+'px';
-      badge.style.top=(mr.top-28)+'px';
+      badge.style.left=(mr.left-58)+'px';
+      badge.style.top=(midY-17)+'px';
       grid.appendChild(badge);
     }
     mr.el.onmouseenter=evt=>{
@@ -3083,7 +3091,7 @@ function renderMatchupOverlay(){
     const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
     picks.forEach((e,i)=>{
       const er=enemyRects[e.idx];if(!er)return;
-      const badge=addBadge(er,false,i+1,'enemy');
+      const badge=addBadge(er,i+1,'enemy');
       badge.style.pointerEvents='auto';
       badge.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke keuze (#'+(i+1)+')</b><br>Hoogste coverage-score tegen jouw team (Σ = '+enemyScore[e.idx]+'). Een aanname, geen garantie voor zijn daadwerkelijke keuze.');
       badge.onmousemove=moveTip;

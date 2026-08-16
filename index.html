@@ -268,6 +268,10 @@
   .mwxEnemyLeadBadge .ic{font-size:15px;line-height:1.1;}
   .mwxEnemyLeadBadge .lbl{font-family:'Oswald';font-weight:700;font-size:8.5px;letter-spacing:.05em;color:#2a1a00;line-height:1.15;}
   .mwxEnemyLead2Badge{position:absolute;display:flex;align-items:center;justify-content:center;gap:3px;height:22px;padding:0 8px;border-radius:11px;background:rgba(247,178,59,.85);box-shadow:0 3px 8px rgba(0,0,0,.4),0 0 0 2px var(--panel);z-index:4;font-family:'Oswald';font-weight:700;font-size:10px;color:#2a1a00;white-space:nowrap;}
+  .mwxConfirmedBadge{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:50px;padding:6px 2px;border-radius:13px;background:linear-gradient(160deg,#8fd6ff,#2f9bdc);box-shadow:0 4px 12px rgba(0,0,0,.5),0 0 0 2px var(--panel);z-index:4;text-align:center;}
+  .mwxConfirmedBadge .ic{font-size:16px;line-height:1.1;color:#04263a;font-weight:700;}
+  .mwxConfirmedBadge .lbl{font-family:'Oswald';font-weight:700;font-size:8.5px;letter-spacing:.05em;color:#04263a;line-height:1.15;}
+  .teamSlot.mwxConfirmed{outline:2px solid #2f9bdc;outline-offset:1px;box-shadow:0 0 0 4px rgba(47,155,220,.22);}
   .mwxLegend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 2px 12px;font-size:11px;color:var(--muted);align-items:center;}
   .mwxLegend .sw{display:inline-flex;align-items:center;gap:6px;}
   .mwxLegend svg{display:block;}
@@ -373,6 +377,7 @@
     <span class="sw"><svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke="#ff5566" stroke-width="2.5" stroke-dasharray="5,4" stroke-linecap="round"/></svg>Gevaar</span>
     <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#3ddc84"/></svg>Jouw lead/drietal</span>
     <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#f7b23b"/></svg>Zijn waarschijnlijke 3 / lead</span>
+    <span class="sw"><svg width="13" height="13"><circle cx="6.5" cy="6.5" r="5.5" fill="#2f9bdc"/></svg>Bevestigde lead — klik op zijn kaart zodra je zijn echte opener ziet</span>
   </div>
 
   <div class="label" style="margin-top:22px"><span>Advies</span><span class="rule"></span></div>
@@ -2339,7 +2344,7 @@ function initTeamPanel(){
   rebuildMineSlots();rebuildTheirsSlots();
   renderSavedTeamsRow();
   wireArmedButton(document.getElementById('clearMine'),'Zeker weten?',()=>{mineTeam=Array.from({length:6},newSlot);saveTeams();rebuildMineSlots();computeAdvice();});
-  document.getElementById('clearTheirs').onclick=()=>{enemyTeam=Array.from({length:6},newSlot);saveTeams();rebuildTheirsSlots();computeAdvice();};
+  document.getElementById('clearTheirs').onclick=()=>{enemyTeam=Array.from({length:6},newSlot);confirmedEnemyLeadIdx=null;saveTeams();rebuildTheirsSlots();computeAdvice();};
   const mwxModeMine=document.getElementById('mwxModeMine'),mwxModeEnemy=document.getElementById('mwxModeEnemy');
   if(mwxModeMine&&mwxModeEnemy){
     mwxModeMine.onclick=()=>{mwxMode='mine';mwxModeMine.setAttribute('aria-pressed','true');mwxModeEnemy.setAttribute('aria-pressed','false');renderMatchupOverlay();};
@@ -2921,6 +2926,12 @@ let mwxData=null;
 let mwxMode='mine';
 let mwxShowLight=false;
 let mwxRAF=null;
+/* Bevestigde ECHTE lead voor dit potje — gezet door op zijn kaart te klikken (buiten het
+   naamveld/toggle/etc.), overschrijft de voorspelling voor positie 1. null = nog geen potje
+   gestart / nog niet bevestigd, dan geldt de voorspelling. Wordt gevalideerd in
+   renderMatchupOverlay() (verwijderd als die tegenstander niet meer ingevuld is) en expliciet
+   gereset bij "Wis tegenstander". */
+let confirmedEnemyLeadIdx=null;
 function guaranteedDeath(mi,e,realMatrix){
   const rc=realMatrix[mi][e.idx];
   if(rc.defW!==3)return false;
@@ -2954,14 +2965,56 @@ function renderMatchupOverlay(){
   const svg=document.getElementById('mwxSvg'),cap=document.getElementById('mwxCap'),tip=document.getElementById('mwxTip');
   const grid=document.getElementById('teamGrid');
   if(!svg||!cap||!tip||!grid)return;
-  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge,.mwxEnemyLeadBadge,.mwxEnemyLead2Badge').forEach(b=>b.remove());
+  document.querySelectorAll('.mwxBadge,.mwxLeadBadge,.mwxTrioBadge,.mwxEnemyLeadBadge,.mwxEnemyLead2Badge,.mwxConfirmedBadge').forEach(b=>b.remove());
   if(!grid.classList.contains('desktop')){
     svg.innerHTML='';
     cap.textContent='Schakel naar 🖥️ Desktop-layout (bovenaan) om de matchup web tussen je invulvelden te zien.';
     return;
   }
-  if(!mwxData){svg.innerHTML='';return;}
+  if(!mwxData){
+    svg.innerHTML='';
+    document.querySelectorAll('.teamSlot.mwxConfirmed').forEach(el=>el.classList.remove('mwxConfirmed'));
+    return;
+  }
   const{mineFilled,enemyFilled,realMatrix,combo,leadMi,atRiskEnemies,pts,predictedLeads}=mwxData;
+
+  /* ===== Rang/positie EERST bepalen, dan pas de echte kaarten herschikken (CSS order op de
+     al-bestaande flex-kolommen — geen DOM-verplaatsing nodig), en PAS DAARNA de posities
+     meten. getBoundingClientRect() ná een order-wijziging geeft altijd de nieuwe, echte
+     layout terug (browser forceert dan een reflow) — dus deze volgorde is verplicht, anders
+     tekenen lijnen/badges nog op de OUDE posities. */
+  const others=combo.filter(mi=>mi!==leadMi).sort((a,b)=>pts[b].net-pts[a].net);
+  const myRank={};myRank[leadMi]=1;others.forEach((mi,i)=>{myRank[mi]=i+2;});
+
+  const enemyScore={};
+  enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
+  const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
+
+  /* Bevestigde lead (klik) wint altijd positie 1; zonder bevestiging geldt de voorspelling.
+     Positie 2/3 komen uit de coverage-top, met de lead/bevestigde overgeslagen als die daar
+     toevallig ook al in stond — zo blijven het altijd 3 verschillende tegenstanders. */
+  if(confirmedEnemyLeadIdx!=null&&!enemyFilled.some(e=>e.idx===confirmedEnemyLeadIdx))confirmedEnemyLeadIdx=null;
+  const enemyTop3=[];
+  if(confirmedEnemyLeadIdx!=null)enemyTop3.push(confirmedEnemyLeadIdx);
+  else if(predictedLeads.length)enemyTop3.push(predictedLeads[0].idx);
+  picks.forEach(p=>{if(enemyTop3.length<3&&!enemyTop3.includes(p.idx))enemyTop3.push(p.idx);});
+
+  let mBench=0;
+  mineFilled.forEach(m=>{
+    const el=document.querySelector('.teamSlot[data-side="mine"][data-idx="'+m.idx+'"]');
+    if(!el)return;
+    const rank=myRank[m.idx];
+    el.style.order=rank?String(rank-1):String(3+(mBench++));
+  });
+  let eBench=0;
+  enemyFilled.forEach(e=>{
+    const el=document.querySelector('.teamSlot[data-side="theirs"][data-idx="'+e.idx+'"]');
+    if(!el)return;
+    const top3Idx=enemyTop3.indexOf(e.idx);
+    el.style.order=top3Idx!==-1?String(top3Idx):String(3+(eBench++));
+    el.classList.toggle('mwxConfirmed',confirmedEnemyLeadIdx===e.idx);
+  });
+
   const gridRect=grid.getBoundingClientRect();
   svg.setAttribute('width',gridRect.width);
   svg.setAttribute('height',gridRect.height);
@@ -3027,15 +3080,20 @@ function renderMatchupOverlay(){
     return lo+(hi-lo)*(index/(count-1));
   }
 
-  /* Pass 1: welke paren krijgen een lijn — inclusief of het een ECHTE %-berekening is of de
-     kale type-tabel-fallback (geen bevestigde stats/moves bekend, bv. een enkel getypt "Dark
-     Fairy"-vak zonder herkende naam). Bij zo'n fallback is "licht voordeel" niet een klein
-     bevestigd effect om te verbergen — het is het ENIGE signaal dat er is, dus die telt niet
-     mee voor de "Lichte voordelen"-toggle en wordt altijd getoond. */
+  /* Pass 1: welke paren krijgen een lijn. Beperkt tot combo (mijn 3) × enemyTop3 (zijn 3) —
+     was alle 6×6 (tot 36 lijnen, onoverzichtelijk); nu hooguit 9. De andere 6 kaarten blijven
+     gewoon zichtbaar (ingevuld, met hun eigen badges/positie), krijgen alleen geen lijn. Ook
+     of het een ECHTE %-berekening is of de kale type-tabel-fallback (geen bevestigde stats/
+     moves bekend, bv. een enkel getypt "Dark Fairy"-vak zonder herkende naam) — bij zo'n
+     fallback is "licht voordeel" niet een klein bevestigd effect om te verbergen, het is het
+     ENIGE signaal dat er is, dus telt niet mee voor de "Lichte voordelen"-toggle. */
+  const comboSet=new Set(combo);
   const activeLines=[];
   mineFilled.forEach(m=>{
+    if(!comboSet.has(m.idx))return;
     const mr=mineRects[m.idx];if(!mr)return;
     enemyFilled.forEach(e=>{
+      if(enemyTop3.indexOf(e.idx)===-1)return;
       const er=enemyRects[e.idx];if(!er)return;
       const rc=realMatrix[m.idx][e.idx],dead=guaranteedDeath(m.idx,e,realMatrix);
       const fallback=mwxMode==='mine'?!rc.offMove:!rc.defMove;
@@ -3081,10 +3139,8 @@ function renderMatchupOverlay(){
      heen, zodat ze niet meer per ongeluk bij het VERKEERDE (aangrenzende) teamlid lijken te
      horen. Verticaal gecentreerd op de kaart die ze horen; hoogte gemeten na het invoegen
      (voor badges met variabele hoogte door de tekst), zodat een stapel van meerdere badges
-     bij hetzelfde teamlid altijd als groep netjes gecentreerd staat. */
-
-  const others=combo.filter(mi=>mi!==leadMi).sort((a,b)=>pts[b].net-pts[a].net);
-  const myRank={};myRank[leadMi]=1;others.forEach((mi,i)=>{myRank[mi]=i+2;});
+     bij hetzelfde teamlid altijd als groep netjes gecentreerd staat. myRank/picks/enemyTop3
+     zijn hierboven al berekend (nodig vóór de CSS-order-herschikking). */
   mineFilled.forEach(m=>{
     const mr=mineRects[m.idx];if(!mr)return;
     const rank=myRank[m.idx];
@@ -3134,33 +3190,57 @@ function renderMatchupOverlay(){
   function leadLabel(lead){
     return lead.source==='history'?Math.round(lead.ratio*100)+'% Lead':lead.source==='global'?lead.leadRate+'% Lead':'Mogelijke lead';
   }
-  const enemyScore={};
-  enemyFilled.forEach(e=>{enemyScore[e.idx]=mineFilled.reduce((s,m)=>s+realMatrix[m.idx][e.idx].defW,0);});
-  const picks=enemyFilled.slice().sort((a,b)=>enemyScore[b.idx]-enemyScore[a.idx]).slice(0,Math.min(3,enemyFilled.length));
+  /* Badge-nummer volgt nu exact dezelfde enemyTop3-positie als de herschikking hierboven —
+     rang ② op het scherm is altijd hetzelfde teamlid als badge "2". "2e lead" (predictedLeads[1])
+     is een aparte, zwakkere claim die nog wel op een NIET-top-3-kaart kan staan (geen lijn dan,
+     maar de badge is klein en dus geen lijn-chaos) en mag samen met ②/③ verschijnen. */
   enemyFilled.forEach(e=>{
     const er=enemyRects[e.idx];if(!er)return;
     er.el.onmouseenter=null;er.el.onmousemove=null;er.el.onmouseleave=null;
+    er.el.style.cursor='pointer';
+    /* Klik ergens op de kaart (niet op het naamveld/toggle/select/etc.) = "dit is de
+       daadwerkelijke lead voor dit potje" — bevestiging wint van de voorspelling voor positie
+       1, en hergebruikt meteen de bestaande "Tegenstander opent met"-knop/antwoord in Advies
+       i.p.v. nieuwe adviceslogica. Nogmaals klikken heft de bevestiging weer op. */
+    er.el.onclick=function(evt){
+      if(evt.target.closest('input,select,button,.slotAc,a'))return;
+      confirmedEnemyLeadIdx=confirmedEnemyLeadIdx===e.idx?null:e.idx;
+      renderMatchupOverlay();
+      if(confirmedEnemyLeadIdx===e.idx){
+        const btn=document.getElementById('leadPickBtn-'+e.idx);
+        if(btn){
+          btn.click();
+          requestAnimationFrame(()=>{
+            const box=document.getElementById('leadAnswerBox');
+            if(box)box.scrollIntoView({behavior:'smooth',block:'center'});
+          });
+        }
+      }
+    };
+    const top3Idx=enemyTop3.indexOf(e.idx);
     const specs=[];
-    const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
-    const trioRank=picks.findIndex(p=>p.idx===e.idx);
-    /* Rang ① wordt nooit getoond — "LEAD" is al de sterkere, specifiekere claim voor de
-       belangrijkste voorspelling, een los "1"-rondje ernaast (of in plaats daarvan) voegt
-       niets toe. "LEAD" (predictedLeads[0]) staat daarom altijd alleen, nooit gecombineerd
-       met een rangnummer. "2e lead" (predictedLeads[1]) is een aparte, zwakkere claim en mag
-       wél samen met rang ② of ③ verschijnen als die toevallig op dezelfde tegenstander vallen. */
-    if(leadRank===0){
-      specs.push({kind:'lead1',lead:predictedLeads[0]});
-    }else{
-      if(leadRank===1)specs.push({kind:'lead2',lead:predictedLeads[1]});
-      if(trioRank===1||trioRank===2)specs.push({kind:'trio',rank:trioRank+1});
+    if(top3Idx===0){
+      if(confirmedEnemyLeadIdx===e.idx)specs.push({kind:'confirmed'});
+      else if(predictedLeads.length&&predictedLeads[0].idx===e.idx)specs.push({kind:'lead1',lead:predictedLeads[0]});
+    }else if(top3Idx===1||top3Idx===2){
+      specs.push({kind:'trio',rank:top3Idx+1});
     }
+    const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
+    if(leadRank===1&&top3Idx!==0)specs.push({kind:'lead2',lead:predictedLeads[1]});
     if(!specs.length)return;
     const els=specs.map(spec=>{
+      if(spec.kind==='confirmed'){
+        const b=document.createElement('div');
+        b.className='mwxConfirmedBadge';
+        b.innerHTML='<span class="ic">✓</span><span class="lbl">LEAD</span>';
+        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — bevestigde lead</b><br>Door jou aangeklikt als de daadwerkelijke opener dit potje. Klik nogmaals op de kaart om dit ongedaan te maken.');
+        return b;
+      }
       if(spec.kind==='lead1'){
         const b=document.createElement('div');
         b.className='mwxEnemyLeadBadge';
         b.innerHTML='<span class="ic">🎯</span><span class="lbl">LEAD</span>';
-        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke lead</b><br>'+leadLabel(spec.lead)+' (bron: '+(spec.lead.source==='history'?'jouw eigen geschiedenis':spec.lead.source==='global'?'live Lead Rate':'hazard-patroon, geen harde voorspelling')+').');
+        b.onmouseenter=evt=>showTip(evt,'<b>'+e.name+' — waarschijnlijke lead</b><br>'+leadLabel(spec.lead)+' (bron: '+(spec.lead.source==='history'?'jouw eigen geschiedenis':spec.lead.source==='global'?'live Lead Rate':'hazard-patroon, geen harde voorspelling')+'). Klik op de kaart zodra je zijn echte opener ziet.');
         return b;
       }
       if(spec.kind==='lead2'){

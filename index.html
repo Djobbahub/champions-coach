@@ -3144,8 +3144,13 @@ function renderMatchupOverlay(){
     const leadRank=predictedLeads.findIndex(l=>l.idx===e.idx);
     if(leadRank===0)specs.push({kind:'lead1',lead:predictedLeads[0]});
     else if(leadRank===1)specs.push({kind:'lead2',lead:predictedLeads[1]});
-    const trioRank=picks.findIndex(p=>p.idx===e.idx);
-    if(trioRank!==-1)specs.push({kind:'trio',rank:trioRank+1});
+    /* Alleen de drietal-rang tonen als er nog GEEN lead-badge staat — een kaart met zowel
+       "LEAD" als een los rangnummer eronder oogt als 2 losse, verwarrende claims i.p.v. 1
+       duidelijke. De lead-voorspelling is de sterkere/specifiekere claim, die wint. */
+    if(!specs.length){
+      const trioRank=picks.findIndex(p=>p.idx===e.idx);
+      if(trioRank!==-1)specs.push({kind:'trio',rank:trioRank+1});
+    }
     if(!specs.length)return;
     const els=specs.map(spec=>{
       if(spec.kind==='lead1'){

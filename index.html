@@ -2994,6 +2994,18 @@ function renderMatchupOverlay(){
     danger:{stroke:'#ff5566',width:2.5,dash:'6,4',opacity:.95}
   };
   svg.innerHTML='';
+  /* Pijltje op het punt waar een lijn AANKOMT — welk uiteinde dat is, hangt af van wat de
+     lijn betekent, niet van welke kant mine/enemy toevallig is: in "Mijn team" stroomt een
+     voordeel-lijn van mij naar hem (pijl bij hem), maar een gevaar-lijn is zíjn dreiging die
+     bij MIJ aankomt (pijl bij mij) — de pad-richting wordt daarom per lijn gekozen via
+     "toEnemy" hieronder, marker-end zit altijd op het echte eindpunt van het pad. */
+  const defs=mel('defs',{});
+  Object.entries(TIER).forEach(([name,t])=>{
+    const marker=mel('marker',{id:'mwxArrow-'+name,viewBox:'0 0 10 10',refX:'8',refY:'5',markerWidth:'6.5',markerHeight:'6.5',orient:'auto-start-reverse'});
+    marker.appendChild(mel('path',{d:'M0,0 L10,5 L0,10 Z',fill:t.stroke}));
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
   const linesLayer=mel('g',{}),hitLayer=mel('g',{});
   svg.appendChild(linesLayer);svg.appendChild(hitLayer);
 
@@ -3023,18 +3035,19 @@ function renderMatchupOverlay(){
       const er=enemyRects[e.idx];if(!er)return;
       const rc=realMatrix[m.idx][e.idx],dead=guaranteedDeath(m.idx,e,realMatrix);
       const fallback=mwxMode==='mine'?!rc.offMove:!rc.defMove;
-      let tier=null,info='';
+      let tier=null,info='',toEnemy=true;
       if(mwxMode==='mine'){
-        if(dead){tier='danger';info='☠ Gegarandeerde KO-dreiging — '+pairReason(rc,'def')+'.';}
+        if(dead){tier='danger';info='☠ Gegarandeerde KO-dreiging — '+pairReason(rc,'def')+'.';toEnemy=false;}
         else if(rc.offW>=2){tier='strong';info=m.name+' → '+e.name+': '+pairReason(rc,'off')+'.';}
         else if(rc.offW===1){tier='moderate';info=m.name+' → '+e.name+': '+pairReason(rc,'off')+(fallback?' (o.b.v. type, geen bevestigde data).':' (licht voordeel).');}
       }else{
+        toEnemy=false;
         if(dead){tier='strong';info='☠ '+e.name+' → '+m.name+': '+pairReason(rc,'def')+'.';}
         else if(rc.defW===2){tier='moderate';info=e.name+' → '+m.name+': '+pairReason(rc,'def')+(fallback?' (o.b.v. type, geen bevestigde data).':'.');}
       }
       if(!tier)return;
       if(tier==='moderate'&&!mwxShowLight&&!fallback)return;
-      activeLines.push({m,mr,e,er,tier,info});
+      activeLines.push({m,mr,e,er,tier,info,toEnemy});
     });
   });
   const outSeen={},inSeen={},outCount={},inCount={};
@@ -3043,10 +3056,14 @@ function renderMatchupOverlay(){
     l.outIdx=outSeen[l.m.idx]||0;outSeen[l.m.idx]=l.outIdx+1;
     l.inIdx=inSeen[l.e.idx]||0;inSeen[l.e.idx]=l.inIdx+1;
   });
-  activeLines.forEach(({m,mr,e,er,tier,info,outIdx,inIdx})=>{
+  activeLines.forEach(({m,mr,e,er,tier,info,outIdx,inIdx,toEnemy})=>{
     const y1=spreadY(mr,outCount[m.idx],outIdx),y2=spreadY(er,inCount[e.idx],inIdx);
-    const st=TIER[tier],d=bezier(mr.right,y1,er.left,y2);
-    const p=mel('path',{d,fill:'none',stroke:st.stroke,'stroke-width':st.width,'stroke-dasharray':st.dash,opacity:st.opacity,'stroke-linecap':'round'});
+    const st=TIER[tier];
+    /* toEnemy bepaalt de pad-RICHTING (waar het pijltje via marker-end landt), niet de
+       zichtbare kromming — dezelfde twee punten + hetzelfde middelpunt voor de
+       controlepunten, dus de curve oogt identiek, alleen de pijl zit aan het juiste eind. */
+    const d=toEnemy?bezier(mr.right,y1,er.left,y2):bezier(er.left,y2,mr.right,y1);
+    const p=mel('path',{d,fill:'none',stroke:st.stroke,'stroke-width':st.width,'stroke-dasharray':st.dash,opacity:st.opacity,'stroke-linecap':'round','marker-end':'url(#mwxArrow-'+tier+')'});
     linesLayer.appendChild(p);
     const hit=mel('path',{d,fill:'none',stroke:'#000','stroke-width':14,opacity:0,style:'pointer-events:stroke;cursor:pointer'});
     hit.addEventListener('mouseenter',evt=>{p.setAttribute('stroke-width',st.width+1.5);showTip(evt,'<b>'+m.name+' ↔ '+e.name+'</b><br>'+info);});

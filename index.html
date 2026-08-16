@@ -1233,7 +1233,13 @@ const NATURES=[
   {name:'Modest',plus:'SpA',minus:'Atk'},{name:'Mild',plus:'SpA',minus:'Def'},{name:'Quiet',plus:'SpA',minus:'Spe'},{name:'Bashful'},{name:'Rash',plus:'SpA',minus:'SpD'},
   {name:'Calm',plus:'SpD',minus:'Atk'},{name:'Gentle',plus:'SpD',minus:'Def'},{name:'Sassy',plus:'SpD',minus:'Spe'},{name:'Careful',plus:'SpD',minus:'SpA'},{name:'Quirky'}
 ];
-function effSpeed(slot){const v=parseInt(slot.stats&&slot.stats.spe,10);return(v&&v>0)?v:null;}
+/* Choice Scarf op de tegenstander werd al verdisconteerd (speedRange's 'scarf'-plafond,
+   zie speedEdge), maar op JOUW EIGEN team nergens — effSpeed gaf altijd de kale ingevulde
+   stat terug, ongeacht item. Elke snelheidsvergelijking (speedEdge, leadSpe, singleLeadBonus)
+   dacht dus dat een Scarf-drager zijn kale, niet-geboosste snelheid had: ~1.5x te traag
+   ingeschat, wat een Scarf-mon overal als 'unsure'/'slower' liet scoren i.p.v. bijna altijd
+   'faster'. Ontdekt tijdens onderzoek naar Meowscarada's Choice Scarf. */
+function effSpeed(slot){const v=parseInt(slot.stats&&slot.stats.spe,10);if(!v||v<=0)return null;return slot.item==='Choice Scarf'?Math.floor(v*1.5):v;}
 function statNum(slot,k){const v=parseInt(slot.stats&&slot.stats[k],10);return(v&&v>0)?v:null;}
 
 function newSlot(){return{name:'',manualTypes:[],item:'',itemAssumed:false,ability:'',nature:'Hardy',status:null,
@@ -1536,7 +1542,8 @@ async function computeDamageRoll(attackerSlot,side,move,defenderSlot,defenderSid
 
   const stab=stabMultiplier(attackerSlot,move.type);
   const critStage=Math.min(3,moveData.critRate||0);
-  const critChance=CRIT_STAGE_RATE[critStage];
+  const alwaysCrit=hasMoveTag(move.name,'alwayscrit');
+  const critChance=alwaysCrit?1:CRIT_STAGE_RATE[critStage];
 
   function roll(critMult){
     const lo=Math.floor(base*stab*typeEff*critMult*0.85);
@@ -1544,6 +1551,12 @@ async function computeDamageRoll(attackerSlot,side,move,defenderSlot,defenderSid
     return{min:lo,avg:Math.floor((lo+hi)/2),max:hi};
   }
   let dmg=roll(1), dmgCrit=roll(1.5);
+  /* Flower Trick/Storm Throw/Wicked Blow/Frost Breath/Surging Strikes crit NOOIT niet — de
+     crit is geen kans maar een garantie. 'percent' (dmg) voedt realWeight()/coverageQuality,
+     dus zonder deze correctie werd zo'n move overal doorgerekend als een gewone, niet-critte
+     klap: 33% te weinig schade, elke matchup, structureel. Ontdekt tijdens onderzoek naar
+     waarom Meowscarada (Flower Trick is zijn hoofdaanval) bijna nooit in het drietal koos. */
+  if(alwaysCrit)dmg=dmgCrit;
   /* minHits/maxHits werden al opgehaald (fetchMoveData) maar nergens gebruikt — elke
      multi-hit-move (Icicle Spear, Bullet Seed, Population Bomb, ...) werd dus overal in de
      app als ÉÉN klap gerekend. Ontdekt via een hypothetisch scenario dat de gebruiker

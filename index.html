@@ -262,7 +262,7 @@
   .mwxLegend svg{display:block;}
   .mwxTip{position:absolute;pointer-events:none;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:12.5px;line-height:1.5;color:var(--txt);max-width:230px;display:none;z-index:5;box-shadow:0 6px 18px rgba(0,0,0,.4);}
   .mwxTip b{color:inherit;}
-  .teamGrid.desktop{grid-template-columns:1fr 130px 1fr;gap:0;}
+  .teamGrid.desktop{grid-template-columns:minmax(0,300px) 1fr minmax(0,300px);gap:0;}
   .teamGrid.desktop .teamCol:nth-child(1){grid-column:1;}
   .teamGrid.desktop .teamCol:nth-child(2){grid-column:3;}
   @media (prefers-reduced-motion: reduce){*{transition:none!important;}}

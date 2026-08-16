@@ -922,7 +922,7 @@ const MOVES={
   "Coil":["Poison","Status","setup"],"Growth":["Normal","Status","setup"],"Work Up":["Normal","Status","setup"],
   "Defog":["Flying","Status"],"Haze":["Ice","Status"],"Recycle":["Normal","Status"],"Baton Pass":["Normal","Status"],
   "Photon Geyser":["Psychic","Special"],"Moongeist Beam":["Ghost","Special"],"Spectral Thief":["Ghost","Physical"],
-  "Population Bomb":["Normal","Physical"],"Tera Blast":["Normal","Special"],"Glaive Rush":["Dragon","Physical"],"Collision Course":["Fighting","Physical"],
+  "Population Bomb":["Normal","Physical","multihit"],"Tera Blast":["Normal","Special"],"Glaive Rush":["Dragon","Physical"],"Collision Course":["Fighting","Physical"],
   "Electro Drift":["Electric","Special"],"Ivy Cudgel":["Grass","Physical"],"Psyblade":["Psychic","Physical"],"Mighty Cleave":["Rock","Physical"],
   "Salt Cure":["Rock","Physical"],"Ruination":["Dark","Special"],"Chilling Water":["Water","Special"],"Hard Press":["Steel","Physical"],
   "Alluring Voice":["Fairy","Special"],"Temper Flare":["Fire","Physical"],"Supercell Slam":["Electric","Physical"],"Blazing Torque":["Fire","Physical"],
@@ -934,7 +934,7 @@ const MOVES={
   "Behemoth Blade":["Steel","Physical"],"Dire Claw":["Poison","Physical"],"Torch Song":["Fire","Special"],"Aqua Cutter":["Water","Physical"],
   "Ceaseless Edge":["Poison","Physical"],"Barb Barrage":["Poison","Physical"],"Esper Wing":["Psychic","Special"],"Jet Punch":["Water","Physical","priority"],
   "Accelerock":["Rock","Physical","priority"],"First Impression":["Bug","Physical","priority"],"Water Shuriken":["Water","Special","priority"],
-  "Triple Axel":["Ice","Physical","multihit"],"Population":["Normal","Physical","multihit"]
+  "Triple Axel":["Ice","Physical","multihit"]
 };
 function moveLookup(name){
   const key=Object.keys(MOVES).find(k=>k.toLowerCase()===String(name).trim().toLowerCase());
@@ -2999,6 +2999,34 @@ async function computeAdvice(){
     html+='<div class="advWarn">⚠ Geen veilige lead: '+riskyMembers.map(r=>spriteChip(nameFor(r.mi))).join(' ')+'</div>';
   }else if(riskyMembers.length){
     html+='<div class="advWarn">⚠ Niet als lead: '+riskyMembers.map(r=>spriteChip(nameFor(r.mi))).join(' ')+'</div>';
+  }
+  /* Lead-specifieke switch-waarschuwing: de gekozen lead kan een structurele 4×-zwakte
+     dragen die (nog) niet 'bevestigd' is via een ingevulde move, maar wel plausibel is
+     zodra een zichtbare tegenstander dat type aannemelijk draagt (eigen STAB/coverage/
+     live top-move — dezelfde 'plausibel'-toets als de rest van de app). Alleen tonen als
+     er ook echt iets te doen valt: een andere Pokémon uit het drietal is daar aantoonbaar
+     beter tegen. Focus Sash/Sturdy/Disguise maken dit ongevaarlijk (je overleeft de eerste
+     klap gegarandeerd) — tenzij de dreigende tegenstander een multi-hit-move draagt, want
+     die breekt zo'n schild alsnog. */
+  const leadStructRisk=structuralQuadRisk(mineTeam[leadMi]);
+  if(leadStructRisk.length){
+    const leadProtected=mineTeam[leadMi].item==='Focus Sash'||['Sturdy','Disguise'].includes(mineTeam[leadMi].ability);
+    let atRiskEnemies=enemyFilled.filter(e=>{
+      const plausible=plausibleEnemyTypes(e);
+      return leadStructRisk.some(t=>plausible.has(t));
+    });
+    if(leadProtected)atRiskEnemies=atRiskEnemies.filter(e=>hasMultiHitMove(e.slot));
+    const leadContingencies=atRiskEnemies.map(e=>({e,answer:bestAnswer(e)})).filter(({answer})=>answer.mi!==leadMi);
+    if(leadContingencies.length){
+      const groups=new Map();
+      leadContingencies.forEach(({e,answer})=>{
+        if(!groups.has(answer.mi))groups.set(answer.mi,[]);
+        groups.get(answer.mi).push(e);
+      });
+      const typeBadges=leadStructRisk.map(t=>'<span class="typebadge" style="background:'+COLOR[t]+';color:'+ink(COLOR[t])+';font-size:9px;padding:2px 6px">'+t+'</span>').join('');
+      const parts=[...groups.entries()].map(([mi,enemies])=>'als '+enemies.map(e=>spriteChip(e.name)).join(' of ')+' opent → switch naar '+spriteChip(nameFor(mi)));
+      html+='<div class="advWarn">☠ Lead '+spriteChip(nameFor(leadMi))+' 4× zwak tegen '+typeBadges+' — '+parts.join('; ')+'.</div>';
+    }
   }
   html+='<div class="switchTable">';
   const byThreat=enemyFilled.slice().sort((a,b)=>Math.max(...best.combo.map(mi=>matrix[mi][b.idx].def))-Math.max(...best.combo.map(mi=>matrix[mi][a.idx].def)));
